@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "sm-dat"
+version = "0.1.0"
+description = "Delegated Authority Token — the principal-signed grant defining what an AI agent is allowed to do. Companion to sm-arp (ARP)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sharath (Stellarminds)" }]
+keywords = ["ai-agents", "authorization", "delegation", "nanda", "arp", "accountability"]
+dependencies = [
+    "sm-arp>=0.3.0",
+    "jcs",
+    "cryptography",
+    "base58",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.urls]
+Homepage = "https://github.com/Sharathvc23/sm-dat"
+Spec = "https://github.com/Sharathvc23/sm-dat/blob/master/SPEC.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["sm_dat"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

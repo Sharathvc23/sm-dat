@@ -1,0 +1,31 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install (pulls sm-arp from PyPI)
+        run: pip install -e ".[dev]"
+      - name: Conformance corpus
+        run: python -m pytest -q
+      - name: Examples run
+        run: |
+          python examples/grant_and_verify.py
+          python examples/budget_and_indeterminate.py
+          python examples/arp_bridge.py
+      - name: Vectors are reproducible
+        run: |
+          python vectors/_generate.py
+          git diff --exit-code vectors/ || (echo "::error::vectors/ drifted from generator — re-run vectors/_generate.py and commit" && exit 1)

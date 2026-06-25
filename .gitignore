@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local data / scratch
+*.sqlite
+*.sqlite3
+*.log
+*.tmp
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# UI demo — not shared on GitHub (deployed separately to Vercel)
+demo/
+.vercel/
