@@ -97,7 +97,11 @@ def verify_grant(
     if grant.get("revocation") is not None:
         if revocation_checker is None:
             return ind("revocation_unknown", "no revocation_checker supplied")
-        state = revocation_checker(gid, issued_at)
+        # grant_id is a required field validated in step 1, so it is present
+        # here; read it directly (typed as the grant's value type) rather than
+        # the pre-validation ``gid`` (Optional) so the str-typed checker call
+        # type-checks.
+        state = revocation_checker(grant["grant_id"], issued_at)
         if state is None:
             return ind("revocation_unknown", "checker could not resolve")
         if state:
@@ -146,6 +150,8 @@ def verify_grant(
         if ledger_context is None:
             return ind("accounting_required", "per-period cap needs a ledger context")
         cur = sl.get("amount_currency") or amount.get("currency")
+        if not isinstance(cur, str):
+            return ind("accounting_required", "per-period amount cap requires a currency")
         prior = ledger_context.period_sum(
             period=sf["period"], anchor=sf.get("period_anchor", "calendar"),
             as_of=issued_at, as_of_receipt_id=receipt_id, currency=cur,
