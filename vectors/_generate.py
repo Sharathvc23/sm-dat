@@ -21,6 +21,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 P = Identity.from_seed(b"\x01" * 32)   # principal / grantor
 A = Identity.from_seed(b"\x02" * 32)   # agent / grantee
 A2 = Identity.from_seed(b"\x03" * 32)  # sub-agent
+A3 = Identity.from_seed(b"\x04" * 32)  # unrelated third party (chain-discontinuity vectors)
 PURCHASE = "2026-04-10T19:00:00Z"
 
 vectors: list[dict] = []
@@ -203,6 +204,31 @@ rcpt_wide = {"issuer_did": A2.did, "issued_at": PURCHASE,
              "action": act(amount_cents=2500, jurisdiction="US-MA")}
 add("subdelegation_widening_breach", kind="chain", receipt=rcpt_wide,
     grants=[PARENT, CHILD_WIDE], expect=["VIOLATED", "attenuation_breach"])
+
+# An ancestor reached via parent_grant_id MUST be independently signature-
+# verified, not just attenuation-checked. Same grant_id as the real PARENT,
+# but content tampered post-signature (the "bad_signature" pattern above,
+# applied to an ancestor instead of the entry grant).
+PARENT_FORGED = copy.deepcopy(PARENT)
+PARENT_FORGED["human_summary"] = "Buy ANYTHING, no limits."  # post-signature edit
+add("subdelegation_forged_ancestor_signature", kind="chain", receipt=rcpt_child,
+    grants=[PARENT_FORGED, CHILD_OK], expect=["VIOLATED", "bad_signature"])
+
+# A child's grantor_did MUST equal its parent's grantee_did — otherwise the
+# "chain" can splice in an ancestor from an unrelated delegation relationship.
+# CHILD_SPLICED is validly signed and validly attenuates PARENT's scope, but
+# its grantor (A3) never received anything from PARENT (which grants to A).
+CHILD_SPLICED = sign_grant(A3, build_grant(
+    grantee_did=A2.did, action_categories=["purchase"], not_after="2026-06-30T23:59:59Z",
+    not_before="2026-04-01T00:00:00Z", human_summary="Sub: <=$30, AMC only.",
+    stateless={"amount_currency": "USD", "amount_cents_per_action_max": 3000,
+               "counterparty_allowlist": ["domain:amctheatres.com"]},
+    parent_grant_id=PARENT["grant_id"]))
+rcpt_spliced = {"issuer_did": A2.did, "issued_at": PURCHASE,
+                "authority_chain": [CHILD_SPLICED["grant_id"]],
+                "action": act(amount_cents=2500, jurisdiction="US-MA")}
+add("subdelegation_chain_discontinuity", kind="chain", receipt=rcpt_spliced,
+    grants=[PARENT, CHILD_SPLICED], expect=["VIOLATED", "chain_discontinuity"])
 
 # --- multi-grant aggregation --------------------------------------------
 G_A = base_grant()

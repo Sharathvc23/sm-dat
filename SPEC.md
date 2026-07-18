@@ -327,6 +327,14 @@ only ever narrow, never broaden.**
   `VIOLATED(attenuation_breach)`.
 - `delegation.max_depth` bounds chain length (default 4); exceeding it ⇒
   `VIOLATED(depth_exceeded)`.
+- **Every ancestor is a distinct signed grant, not a trusted data record.** A verifier walking
+  `parent_grant_id` MUST independently verify each ancestor's signature (§4.1) — an unsigned or
+  forged ancestor reached this way is exactly as dangerous as one presented as the entry grant.
+  A verifier MUST also confirm the delegation relationship is continuous at every link: the
+  child's `grantor_did` MUST equal the parent's `grantee_did`. Either failure ⇒
+  `VIOLATED(bad_signature)` or `VIOLATED(chain_discontinuity)` respectively — a chain is only as
+  trustworthy as its weakest link, and attenuation-only checking (narrowing scope) says nothing
+  about whether an ancestor is real or belongs to this delegation relationship at all.
 
 Attenuation is checked structurally from the grants themselves — it does not require the ledger.
 

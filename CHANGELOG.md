@@ -4,6 +4,25 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-07-18
+
+### Fixed
+- **Ancestor grants in a sub-delegation chain were not signature-verified.**
+  `verify_authority_chain`'s walk along `delegation.parent_grant_id` called
+  only `check_attenuation` (scope narrowing) on each ancestor — never
+  `verify_grant_signature`. A forged or unsigned ancestor, submitted under
+  the correct `grant_id` in the caller-supplied `grants` map, passed the
+  chain walk as long as its scope happened to narrow correctly. Every
+  ancestor is now independently signature-verified
+  (`VIOLATED(bad_signature)` on failure), and chain continuity is checked
+  at every link — `child.grantor_did` MUST equal `parent.grantee_did`
+  (`VIOLATED(chain_discontinuity)` otherwise), closing a splice vector
+  where an unrelated delegation relationship's grant could be walked as if
+  it were part of this chain. SPEC §6 updated to state both as normative
+  requirements; previously undocumented. Two new conformance vectors
+  (`subdelegation_forged_ancestor_signature`,
+  `subdelegation_chain_discontinuity`).
+
 ## [0.1.0] — 2026-06-25
 
 Initial public release of sm-dat, promoted from `sm-arp`'s `dat-companion.md` sketch.

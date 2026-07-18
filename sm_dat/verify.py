@@ -234,13 +234,29 @@ def verify_authority_chain(
             saw_initial_bind = True
             continue
 
-        # depth + attenuation along the parent links
+        # depth + attenuation along the parent links. Each ancestor is a
+        # distinct signed grant, not just a data record referenced by id —
+        # it MUST be independently signature-verified and MUST continue the
+        # same delegation relationship as its child (child.grantor_did ==
+        # parent.grantee_did), or the "chain" could silently splice in an
+        # unrelated, unverified, or forged ancestor.
         depth, cur = 0, grant
         max_depth = (grant.get("delegation") or {}).get("max_depth", 4)
         while (cur.get("delegation") or {}).get("parent_grant_id"):
-            parent = grants.get(cur["delegation"]["parent_grant_id"])
+            parent_id = cur["delegation"]["parent_grant_id"]
+            parent = grants.get(parent_id)
             if parent is None:
-                return Verdict(VIOLATED, "grant_not_found", cur["delegation"]["parent_grant_id"])
+                return Verdict(VIOLATED, "grant_not_found", parent_id)
+            if not verify_grant_signature(parent):
+                return Verdict(VIOLATED, "bad_signature", parent_id, "ancestor grant")
+            if cur.get("grantor_did") != parent.get("grantee_did"):
+                return Verdict(
+                    VIOLATED,
+                    "chain_discontinuity",
+                    parent_id,
+                    f"child.grantor_did {cur.get('grantor_did')!r} != "
+                    f"parent.grantee_did {parent.get('grantee_did')!r}",
+                )
             att = check_attenuation(cur, parent)
             if not att.ok:
                 return att
