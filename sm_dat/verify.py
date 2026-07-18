@@ -362,7 +362,8 @@ def verify_authority_chain_trace(
     (added for trace completeness) can now reach grants the pre-refactor
     function's short-circuit would have skipped.
     """
-    chain = receipt.get("authority_chain") or []
+    raw_chain = receipt.get("authority_chain")
+    chain = raw_chain if isinstance(raw_chain, list) else []
     ledger_contexts = ledger_contexts or {}
     chains: list[list[GrantNode]] = []
 

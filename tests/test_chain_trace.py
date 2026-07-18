@@ -140,3 +140,20 @@ def test_malformed_grant_after_a_violation_does_not_raise():
     # malformed second entry, having already returned at the first.
     assert trace.aggregate.status == "VIOLATED"
     assert trace.aggregate.reason == "amount_cap_exceeded"
+
+
+def test_non_list_authority_chain_does_not_raise():
+    """A pre-existing gap (present since before this module's Task 1),
+    closed because it's now reachable through sm-lineage's untrusted-receipt
+    entry point: a truthy non-list authority_chain (e.g. an int) bypassed
+    the old `... or []` idiom entirely and crashed the `for gid in chain`
+    loop. Must degrade to an empty chain instead."""
+    v = _load("25-subdelegation_valid_narrowing")
+    grants = {g["grant_id"]: g for g in v["grants"]}
+    receipt = dict(v["receipt"], authority_chain=5)
+
+    trace = verify_authority_chain_trace(receipt, grants)  # must not raise
+
+    assert trace.chains == []
+    assert trace.aggregate.status == "VIOLATED"
+    assert trace.aggregate.reason == "no_authority_chain"
