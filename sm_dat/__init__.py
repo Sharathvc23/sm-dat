@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from sm_arp import Identity  # re-export the shared identity primitive
 
-__version__ = "0.1.0"  # keep in lockstep with pyproject.toml `version`
+__version__ = "0.2.0"  # keep in lockstep with pyproject.toml `version`
 
 from .bridge import make_dat_verifier
 from .grant import DAT_VERSION, build_grant, build_initial_bind, sign_grant, verify_grant_signature
@@ -19,9 +19,12 @@ from .verify import (
     INDETERMINATE,
     SATISFIED,
     VIOLATED,
+    ChainTrace,
+    GrantNode,
     Verdict,
     check_attenuation,
     verify_authority_chain,
+    verify_authority_chain_trace,
     verify_grant,
 )
 
@@ -34,6 +37,9 @@ __all__ = [
     "verify_grant_signature",
     "verify_grant",
     "verify_authority_chain",
+    "verify_authority_chain_trace",
+    "GrantNode",
+    "ChainTrace",
     "make_dat_verifier",
     "check_attenuation",
     "LedgerContext",

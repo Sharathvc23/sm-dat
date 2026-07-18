@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-07-18
+
+### Added
+- **`verify_authority_chain_trace`** (SPEC §5.3a) — returns the same
+  aggregate `Verdict` as `verify_authority_chain`, plus a per-grant `chains`
+  structure (leaf-to-root, one list per `authority_chain` entry) for callers
+  that need to inspect *why* a chain is or isn't authorized, not just
+  whether it is. `verify_authority_chain` is now a thin wrapper around it;
+  behavior is unchanged (verified by replaying the full conformance corpus
+  through both entry points).
+
 ## [0.1.1] — 2026-07-18
 
 ### Fixed

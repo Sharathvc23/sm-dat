@@ -292,6 +292,17 @@ iff every cited non-`initial_bind` grant returns `SATISFIED` — none `VIOLATED`
 a same-named `verify_authority_chain` against a *thinner* model (see §9.1) — `sm-dat`'s version
 supersedes it for DAT-envelope grants; the ARP one remains for backward compatibility.
 
+### 5.3a Per-node trace
+
+`verify_authority_chain_trace(receipt, grants, ...)` runs the identical
+decision procedure as `verify_authority_chain` (§5.3) and returns the same
+aggregate `Verdict`, plus a `chains` structure: one leaf-to-root list of
+per-grant results per `authority_chain` entry. Every entry is walked and
+recorded, including entries after an earlier one has already violated —
+`chains` reflects the whole receipt, not just however far a pass/fail
+short-circuit reached. `verify_authority_chain` is defined in terms of this
+function: `verify_authority_chain(...) == verify_authority_chain_trace(...).aggregate`.
+
 ### 5.4 Verifier obligations
 
 `sm-dat`'s guarantees hold only as far as the inputs the verifier supplies. The library decides

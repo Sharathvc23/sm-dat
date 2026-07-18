@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "sm-dat"
-version = "0.1.1"
+version = "0.2.0"
 description = "Delegated Authority Token — the principal-signed grant defining what an AI agent is allowed to do. Companion to sm-arp (ARP)."
 readme = "README.md"
 requires-python = ">=3.11"
