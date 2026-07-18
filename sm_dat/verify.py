@@ -305,7 +305,8 @@ def _trace_chain_entry(
     """
     grant = grants.get(gid)
     if grant is None:
-        return [], Verdict(VIOLATED, "grant_not_found", gid)
+        v = Verdict(VIOLATED, "grant_not_found", gid)
+        return [GrantNode(gid, v, 0, False)], v
     if grant.get("initial_bind"):
         return [GrantNode(gid, Verdict(SATISFIED, "initial_bind_neutral", gid), 0, True)], None
 
@@ -373,8 +374,13 @@ def verify_authority_chain_trace(
             if first_violation is None:
                 first_violation = contributed
         elif contributed.status == INDETERMINATE:
-            if pending_ind is None:
-                pending_ind = contributed
+            # Unconditional overwrite, matching the original function: with
+            # no VIOLATED anywhere, the LAST indeterminate entry processed
+            # wins, not the first. (An earlier draft of this function guarded
+            # this assignment with `if pending_ind is None`, which silently
+            # flipped last-wins to first-wins — caught in task review; fixed
+            # here, before it ever shipped.)
+            pending_ind = contributed
         else:
             authorizing += 1
 
