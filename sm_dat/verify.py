@@ -341,13 +341,26 @@ def verify_authority_chain_trace(
     """Same decision procedure as ``verify_authority_chain`` (SPEC §5.3), but
     walks every ``authority_chain`` entry instead of stopping at the first
     VIOLATED, so ``chains`` reflects the whole receipt. ``aggregate`` is
-    unchanged — exactly the Verdict ``verify_authority_chain`` would return.
+    unchanged — exactly the Verdict ``verify_authority_chain`` would return,
+    for every well-formed input the two entry points share.
 
     Note: entries after the first violation are still fully evaluated
     (including calling ``revocation_checker``/``predicate_evaluator``/
     ``ledger_context``) for trace completeness — these callbacks are
     query-only per their existing contract, so this has no side effects
     beyond the extra call.
+
+    Never raises, even on a malformed grant: walking every entry means a
+    grant this function reaches that ``verify_authority_chain`` never would
+    have (because the original short-circuited before it) is still subject
+    to this module's malformed-input handling — but a *sufficiently*
+    malformed grant (e.g. a non-dict ``delegation`` field) can still trip an
+    attribute error inside the walk. Any such error is caught per-entry and
+    turned into ``VIOLATED(malformed_grant)`` for that entry, rather than
+    propagating — this is the one path in the module where a generic
+    exception handler is deliberate, precisely because walking every entry
+    (added for trace completeness) can now reach grants the pre-refactor
+    function's short-circuit would have skipped.
     """
     chain = receipt.get("authority_chain") or []
     ledger_contexts = ledger_contexts or {}
@@ -359,12 +372,16 @@ def verify_authority_chain_trace(
     saw_initial_bind = False
 
     for gid in chain:
-        nodes, contributed = _trace_chain_entry(
-            gid, grants, receipt,
-            ledger_context=ledger_contexts.get(gid),
-            revocation_checker=revocation_checker,
-            predicate_evaluator=predicate_evaluator,
-        )
+        try:
+            nodes, contributed = _trace_chain_entry(
+                gid, grants, receipt,
+                ledger_context=ledger_contexts.get(gid),
+                revocation_checker=revocation_checker,
+                predicate_evaluator=predicate_evaluator,
+            )
+        except Exception as exc:  # noqa: BLE001 — see docstring: deliberate
+            malformed = Verdict(VIOLATED, "malformed_grant", gid, str(exc))
+            nodes, contributed = [GrantNode(gid, malformed, 0, False)], malformed
         chains.append(nodes)
 
         if contributed is None:

@@ -301,7 +301,16 @@ per-grant results per `authority_chain` entry. Every entry is walked and
 recorded, including entries after an earlier one has already violated —
 `chains` reflects the whole receipt, not just however far a pass/fail
 short-circuit reached. `verify_authority_chain` is defined in terms of this
-function: `verify_authority_chain(...) == verify_authority_chain_trace(...).aggregate`.
+function: `verify_authority_chain(...) == verify_authority_chain_trace(...).aggregate`,
+for every well-formed input the two entry points share.
+
+Walking every entry means a grant this function reaches can be one the
+pre-refactor `verify_authority_chain`'s short-circuit would never have
+touched — including a grant malformed enough to trip an internal error mid-
+walk (e.g. a non-dict `delegation` field). Such an entry is reported as
+`VIOLATED(malformed_grant)` rather than raising; this is the one reason
+code in this module produced by a catch-all rather than a specific
+structural check.
 
 ### 5.4 Verifier obligations
 

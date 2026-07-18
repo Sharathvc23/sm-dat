@@ -12,8 +12,14 @@ All notable changes to this project are documented here. The format follows
   structure (leaf-to-root, one list per `authority_chain` entry) for callers
   that need to inspect *why* a chain is or isn't authorized, not just
   whether it is. `verify_authority_chain` is now a thin wrapper around it;
-  behavior is unchanged (verified by replaying the full conformance corpus
-  through both entry points).
+  behavior is unchanged for every well-formed input (verified by replaying
+  the full conformance corpus through both entry points). Walking every
+  entry (rather than stopping at the first violation) means a malformed
+  grant can now be reached that the old short-circuit would have skipped —
+  such an entry reports `VIOLATED(malformed_grant)` rather than raising
+  (found in final review; the aggregate still matches what the pre-refactor
+  function would have returned, since a genuine earlier violation still
+  wins).
 
 ## [0.1.1] — 2026-07-18
 

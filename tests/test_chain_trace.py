@@ -113,3 +113,30 @@ def test_violation_in_first_entry_does_not_suppress_second_entrys_nodes():
     assert trace.chains[1][0].verdict.status == "SATISFIED", (
         "the second grant is fully evaluated even though the first entry violated"
     )
+
+
+def test_malformed_grant_after_a_violation_does_not_raise():
+    """Found in the final whole-branch review: walking every entry (added so
+    a violation in one entry doesn't hide the next entry's node) means a
+    grant the pre-refactor function's short-circuit would never have reached
+    can now be reached — including a sufficiently malformed one. This must
+    degrade to a VIOLATED node, never raise."""
+    v = _load("30-multigrant_one_violated")
+    grants = {g["grant_id"]: g for g in v["grants"]}
+    cap_5000_id, cap_4000_id = v["receipt"]["authority_chain"]
+    grants[cap_5000_id] = dict(grants[cap_5000_id], delegation="not-a-dict")
+
+    # cap_4000 (violates, amount 4500 > 4000) first, malformed cap_5000 second.
+    receipt = dict(v["receipt"], authority_chain=[cap_4000_id, cap_5000_id])
+
+    trace = verify_authority_chain_trace(receipt, grants)  # must not raise
+
+    assert len(trace.chains) == 2
+    assert trace.chains[1][0].grant_id == cap_5000_id
+    assert trace.chains[1][0].verdict.status == "VIOLATED"
+    assert trace.chains[1][0].verdict.reason == "malformed_grant"
+    # Aggregate still matches what the pre-refactor short-circuiting
+    # function would have returned: it never would have reached the
+    # malformed second entry, having already returned at the first.
+    assert trace.aggregate.status == "VIOLATED"
+    assert trace.aggregate.reason == "amount_cap_exceeded"
