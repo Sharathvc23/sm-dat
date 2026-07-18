@@ -33,6 +33,35 @@ class Verdict:
         return self.status == SATISFIED
 
 
+@dataclass(frozen=True)
+class GrantNode:
+    """One grant's own individual verification result within a chain trace.
+
+    ``depth`` is 0 for the grant named directly in ``authority_chain``,
+    increasing toward the root along ``parent_grant_id``. For depth 0,
+    ``verdict`` is the full ``verify_grant`` result (scope, temporal,
+    revocation, predicate — everything). For depth > 0, ``verdict`` collapses
+    the ancestor-only checks (signature, grantor/grantee continuity,
+    attenuation) into one Verdict.
+    """
+    grant_id: str
+    verdict: Verdict
+    depth: int
+    is_initial_bind: bool
+
+
+@dataclass(frozen=True)
+class ChainTrace:
+    """Per-node trace alongside the same aggregate `verify_authority_chain`
+    returns. `chains` holds one leaf-to-root list per `authority_chain`
+    entry, in receipt order — unlike the aggregate-only function, every
+    entry is walked and recorded even after an earlier entry has already
+    failed, so the report reflects the whole receipt, not just however far
+    a pass/fail short-circuit got."""
+    aggregate: Verdict
+    chains: list[list[GrantNode]]
+
+
 def _t(ts: str) -> datetime:
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
 
@@ -206,6 +235,165 @@ def check_attenuation(child: dict[str, Any], parent: dict[str, Any]) -> Verdict:
     return Verdict(SATISFIED, "ok", cid)
 
 
+def _walk_chain_entry(
+    gid: str,
+    grants: dict[str, dict[str, Any]],
+) -> tuple[list[GrantNode], Verdict | None]:
+    """Walk one authority_chain entry's ancestors leaf-to-root along
+    ``parent_grant_id``, stopping at the first ancestor-level failure — the
+    same bound ``verify_authority_chain`` always applied, just recorded
+    instead of returned immediately. ``nodes`` excludes the leaf itself (the
+    caller adds it after running ``verify_grant``). Returns
+    ``(nodes, ancestor_failure)`` where ``ancestor_failure`` is ``None`` if
+    every ancestor checked out.
+    """
+    grant = grants[gid]
+    nodes: list[GrantNode] = []
+    depth, cur = 0, grant
+    max_depth = (grant.get("delegation") or {}).get("max_depth", 4)
+    while (cur.get("delegation") or {}).get("parent_grant_id"):
+        parent_id = cur["delegation"]["parent_grant_id"]
+        parent = grants.get(parent_id)
+        if parent is None:
+            v = Verdict(VIOLATED, "grant_not_found", parent_id)
+            nodes.append(GrantNode(parent_id, v, depth + 1, False))
+            return nodes, v
+        if not verify_grant_signature(parent):
+            v = Verdict(VIOLATED, "bad_signature", parent_id, "ancestor grant")
+            nodes.append(GrantNode(parent_id, v, depth + 1, False))
+            return nodes, v
+        if cur.get("grantor_did") != parent.get("grantee_did"):
+            v = Verdict(
+                VIOLATED, "chain_discontinuity", parent_id,
+                f"child.grantor_did {cur.get('grantor_did')!r} != "
+                f"parent.grantee_did {parent.get('grantee_did')!r}",
+            )
+            nodes.append(GrantNode(parent_id, v, depth + 1, False))
+            return nodes, v
+        att = check_attenuation(cur, parent)
+        if not att.ok:
+            nodes.append(GrantNode(parent_id, att, depth + 1, False))
+            return nodes, att
+        depth += 1
+        if depth > max_depth:
+            v = Verdict(VIOLATED, "depth_exceeded", gid, f"depth {depth} > {max_depth}")
+            nodes.append(GrantNode(parent_id, v, depth, False))
+            return nodes, v
+        nodes.append(GrantNode(parent_id, att, depth, False))
+        cur = parent
+    return nodes, None
+
+
+def _trace_chain_entry(
+    gid: str,
+    grants: dict[str, dict[str, Any]],
+    receipt: dict[str, Any],
+    *,
+    ledger_context: LedgerContext | None,
+    revocation_checker: Callable[[str, str], bool | None] | None,
+    predicate_evaluator: Callable[[str, dict[str, Any], dict[str, Any]], bool] | None,
+) -> tuple[list[GrantNode], Verdict | None]:
+    """One authority_chain entry, leaf + full ancestor walk. Returns
+    ``(nodes leaf-to-root, contributed)`` where ``contributed`` is this
+    entry's Verdict toward the aggregate, or ``None`` for a neutral
+    initial-bind entry (SPEC §3.0 — never authorizes, never blocks).
+
+    Matches ``verify_authority_chain``'s original check order exactly:
+    ancestors first, the leaf's own ``verify_grant`` last — if an ancestor
+    fails, the leaf is never independently evaluated (its node records
+    ``INDETERMINATE(not_evaluated)`` rather than guessing).
+    """
+    grant = grants.get(gid)
+    if grant is None:
+        return [], Verdict(VIOLATED, "grant_not_found", gid)
+    if grant.get("initial_bind"):
+        return [GrantNode(gid, Verdict(SATISFIED, "initial_bind_neutral", gid), 0, True)], None
+
+    ancestor_nodes, ancestor_failure = _walk_chain_entry(gid, grants)
+    if ancestor_failure is not None:
+        leaf_node = GrantNode(
+            gid, Verdict(INDETERMINATE, "not_evaluated", gid, "skipped: an ancestor failed first"),
+            0, False,
+        )
+        return [leaf_node, *ancestor_nodes], ancestor_failure
+
+    leaf_verdict = verify_grant(
+        grant, receipt["action"], receipt["issued_at"],
+        agent_did=receipt.get("issuer_did"),
+        receipt_id=receipt.get("receipt_id") or "",
+        ledger_context=ledger_context,
+        revocation_checker=revocation_checker,
+        predicate_evaluator=predicate_evaluator,
+    )
+    leaf_node = GrantNode(gid, leaf_verdict, 0, False)
+    return [leaf_node, *ancestor_nodes], leaf_verdict
+
+
+def verify_authority_chain_trace(
+    receipt: dict[str, Any],
+    grants: dict[str, dict[str, Any]],
+    *,
+    ledger_contexts: dict[str, LedgerContext] | None = None,
+    revocation_checker: Callable[[str, str], bool | None] | None = None,
+    predicate_evaluator: Callable[[str, dict[str, Any], dict[str, Any]], bool] | None = None,
+) -> ChainTrace:
+    """Same decision procedure as ``verify_authority_chain`` (SPEC §5.3), but
+    walks every ``authority_chain`` entry instead of stopping at the first
+    VIOLATED, so ``chains`` reflects the whole receipt. ``aggregate`` is
+    unchanged — exactly the Verdict ``verify_authority_chain`` would return.
+
+    Note: entries after the first violation are still fully evaluated
+    (including calling ``revocation_checker``/``predicate_evaluator``/
+    ``ledger_context``) for trace completeness — these callbacks are
+    query-only per their existing contract, so this has no side effects
+    beyond the extra call.
+    """
+    chain = receipt.get("authority_chain") or []
+    ledger_contexts = ledger_contexts or {}
+    chains: list[list[GrantNode]] = []
+
+    first_violation: Verdict | None = None
+    pending_ind: Verdict | None = None
+    authorizing = 0
+    saw_initial_bind = False
+
+    for gid in chain:
+        nodes, contributed = _trace_chain_entry(
+            gid, grants, receipt,
+            ledger_context=ledger_contexts.get(gid),
+            revocation_checker=revocation_checker,
+            predicate_evaluator=predicate_evaluator,
+        )
+        chains.append(nodes)
+
+        if contributed is None:
+            saw_initial_bind = True
+            continue
+        if contributed.status == VIOLATED:
+            if first_violation is None:
+                first_violation = contributed
+        elif contributed.status == INDETERMINATE:
+            if pending_ind is None:
+                pending_ind = contributed
+        else:
+            authorizing += 1
+
+    if first_violation is not None:
+        aggregate = first_violation
+    elif pending_ind is not None:
+        aggregate = pending_ind
+    elif authorizing == 0:
+        aggregate = Verdict(
+            VIOLATED,
+            "initial_bind_authorizes_nothing" if saw_initial_bind else "no_authority_chain",
+            None,
+        )
+    else:
+        aggregate = Verdict(SATISFIED, "ok", None)
+
+    return ChainTrace(aggregate=aggregate, chains=chains)
+
+
 def verify_authority_chain(
     receipt: dict[str, Any],
     grants: dict[str, dict[str, Any]],
@@ -215,83 +403,11 @@ def verify_authority_chain(
     predicate_evaluator: Callable[[str, dict[str, Any], dict[str, Any]], bool] | None = None,
 ) -> Verdict:
     """Aggregate over every grant in ``receipt.authority_chain`` (SPEC §5.3).
-
-    AUTHORIZED iff at least one grant SATISFIED and none VIOLATED; any VIOLATED ⇒
-    unauthorized; else any INDETERMINATE ⇒ INDETERMINATE. An ``initial_bind``
-    grant is **neutral** — it attests the principal↔agent binding but neither
-    authorizes nor blocks (§3.0), so the real grants decide; a chain with no
-    authorizing grant (empty, or only initial-bind) is unauthorized. Also walks
-    sub-delegation: each grant with a parent must attenuate it, bounded by
-    ``max_depth``.
-    """
-    chain = receipt.get("authority_chain") or []
-    ledger_contexts = ledger_contexts or {}
-    pending_ind: Verdict | None = None
-    authorizing = 0
-    saw_initial_bind = False
-
-    for gid in chain:
-        grant = grants.get(gid)
-        if grant is None:
-            return Verdict(VIOLATED, "grant_not_found", gid)
-        if grant.get("initial_bind"):
-            # Neutral: never authorizes an action, never short-circuits to pass,
-            # never blocks a real grant. The real grants decide (§3.0).
-            saw_initial_bind = True
-            continue
-
-        # depth + attenuation along the parent links. Each ancestor is a
-        # distinct signed grant, not just a data record referenced by id —
-        # it MUST be independently signature-verified and MUST continue the
-        # same delegation relationship as its child (child.grantor_did ==
-        # parent.grantee_did), or the "chain" could silently splice in an
-        # unrelated, unverified, or forged ancestor.
-        depth, cur = 0, grant
-        max_depth = (grant.get("delegation") or {}).get("max_depth", 4)
-        while (cur.get("delegation") or {}).get("parent_grant_id"):
-            parent_id = cur["delegation"]["parent_grant_id"]
-            parent = grants.get(parent_id)
-            if parent is None:
-                return Verdict(VIOLATED, "grant_not_found", parent_id)
-            if not verify_grant_signature(parent):
-                return Verdict(VIOLATED, "bad_signature", parent_id, "ancestor grant")
-            if cur.get("grantor_did") != parent.get("grantee_did"):
-                return Verdict(
-                    VIOLATED,
-                    "chain_discontinuity",
-                    parent_id,
-                    f"child.grantor_did {cur.get('grantor_did')!r} != "
-                    f"parent.grantee_did {parent.get('grantee_did')!r}",
-                )
-            att = check_attenuation(cur, parent)
-            if not att.ok:
-                return att
-            depth += 1
-            if depth > max_depth:
-                return Verdict(VIOLATED, "depth_exceeded", gid, f"depth {depth} > {max_depth}")
-            cur = parent
-
-        verdict = verify_grant(
-            grant, receipt["action"], receipt["issued_at"],
-            agent_did=receipt.get("issuer_did"),
-            receipt_id=receipt.get("receipt_id") or "",
-            ledger_context=ledger_contexts.get(gid),
-            revocation_checker=revocation_checker,
-            predicate_evaluator=predicate_evaluator,
-        )
-        if verdict.status == VIOLATED:
-            return verdict
-        if verdict.status == INDETERMINATE:
-            pending_ind = verdict
-        else:
-            authorizing += 1
-
-    if pending_ind is not None:
-        return pending_ind
-    if authorizing == 0:
-        # No grant actually authorized the action: empty chain, or only
-        # initial-bind grants (which never authorize). Fail closed.
-        if saw_initial_bind:
-            return Verdict(VIOLATED, "initial_bind_authorizes_nothing", None)
-        return Verdict(VIOLATED, "no_authority_chain", None)
-    return Verdict(SATISFIED, "ok", None)
+    Thin wrapper — see ``verify_authority_chain_trace`` for the per-node
+    trace this is built on."""
+    return verify_authority_chain_trace(
+        receipt, grants,
+        ledger_contexts=ledger_contexts,
+        revocation_checker=revocation_checker,
+        predicate_evaluator=predicate_evaluator,
+    ).aggregate
