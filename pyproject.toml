@@ -11,6 +11,13 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Sharath (Stellarminds)" }]
 keywords = ["ai-agents", "authorization", "delegation", "nanda", "arp", "accountability"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+]
 dependencies = [
     "sm-arp>=0.3.0",
     "jcs",

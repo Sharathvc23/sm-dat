@@ -13,7 +13,8 @@ statement by the human: *"I permitted this, within these bounds."*
 
 ```python
 from sm_arp import Identity, build_action
-from sm_dat import build_grant, sign_grant, verify_grant, LedgerContext
+from sm_dat import (LedgerContext, StaticRevocationList, build_grant, sign_grant,
+                    verify_grant, check_attenuation)
 
 principal, agent = Identity.generate(), Identity.generate()
 
@@ -23,17 +24,40 @@ grant = sign_grant(principal, build_grant(
     stateless={"amount_currency": "USD", "amount_cents_per_action_max": 5000,
                "counterparty_allowlist": ["domain:amctheatres.com"]},
     stateful={"amount_cents_per_period_max": 50000, "period": "month"},
+    not_before="2026-04-01T00:00:00Z",
     not_after="2026-06-30T23:59:59Z",
+    revocation={"list_url": "https://principal.example/revocations.json"},
     human_summary="Buy movie tickets, ≤$50/mo, AMC only.",
 ))
 
-v = verify_grant(grant,
-                 build_action(category="purchase", amount={"currency": "USD", "cents": 3000},
-                              counterparty_label="domain:amctheatres.com"),
-                 issued_at="2026-04-10T19:00:00Z",
-                 ledger_context=LedgerContext.from_agency_log("log.sqlite", grant["grant_id"]))
+buy = build_action(category="purchase", human_summary="two tickets",
+                   amount_cents=3000, currency="USD",
+                   counterparty_label="domain:amctheatres.com")
+
+ledger = LedgerContext.from_receipts([], grant["grant_id"])   # the agent's prior receipts
+live = StaticRevocationList([], fetched_at="2026-04-10T19:00:00Z")
+
+v = verify_grant(grant, buy, "2026-04-10T19:00:00Z", agent_did=agent.did,
+                 ledger_context=ledger, revocation_checker=live)
 print(v.status, v.reason)          # SATISFIED / VIOLATED / INDETERMINATE
 ```
+
+The full version of this — over-cap, the third outcome, an actual revocation, and a
+delegation attenuation check — is [`examples/quickstart.py`](./examples/quickstart.py),
+and it runs (real output, 2026-07-13):
+
+```text
+in-bounds    : SATISFIED ok
+over cap     : VIOLATED amount_cap_exceeded
+no checker   : INDETERMINATE revocation_unknown
+revoked      : VIOLATED revoked
+attenuation  : SATISFIED
+```
+
+(Two semantics worth noticing there: the revocation gate runs **only for grants that
+declare a revocation source** — and once declared, verifying without a checker is
+`INDETERMINATE`, never a silent pass. And a child grant that omits a cap its parent has
+is a *widening* — `check_attenuation` rejects it.)
 
 ## The one decision that defines this library
 
@@ -77,6 +101,12 @@ refuses to guess a budget it cannot compute:
 authorization granted ahead of time. `sm-airlock` is the agent's sandbox; `sm-dat` is the
 principal's leash. No overlap.
 
+Downstream, the **dissociation-receipt suite** consumes `sm-dat` as its authority leg:
+[`sm-dissociation-receipt`](https://github.com/Sharathvc23/sm-dissociation-receipt)'s
+`[arp]` extra pins this package at an exact git SHA and wraps `verify_authority_chain`
+behind its `make_authority_adapter` — "was this principal entitled to order a memory
+exclusion?" is answered by a DAT grant.
+
 ## Status
 
 - **[WHITEPAPER.md](./WHITEPAPER.md)** — the motivation, design axioms, and what's novel: the
@@ -97,4 +127,4 @@ re-implements crypto.
 ---
 
 Built at [labs.stellarminds.ai](https://labs.stellarminds.ai).
-*First published: 2026-06-25 | Last modified: 2026-06-25*
+*First release: 2026-06-25 (private phase — not on PyPI yet; install from a local checkout or a full-SHA git pin).*

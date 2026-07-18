@@ -25,7 +25,7 @@ All notable changes to this project are documented here. The format follows
 
 ## [0.1.0] — 2026-06-25
 
-Initial public release of sm-dat, promoted from `sm-arp`'s `dat-companion.md` sketch.
+Initial release of sm-dat (private phase; publish pending), promoted from `sm-arp`'s `dat-companion.md` sketch.
 
 ### Added
 - **ARP bridge adapter** (`make_dat_verifier`, SPEC §9.1) — builds the
@@ -60,7 +60,7 @@ Initial public release of sm-dat, promoted from `sm-arp`'s `dat-companion.md` sk
 - **Receipt-anchored verification.** `verify_authority_chain(receipt, grants)` decides
   authorization against a completed ARP receipt — after the fact, by any third party,
   with no policy-enforcement point in the loop. Multi-grant aggregation: AUTHORIZED iff
-  every grant SATISFIED.
+  every cited non-bind grant is SATISFIED (a lone INDETERMINATE blocks).
 - **Sub-delegation with attenuation.** A child grant's scope must be a subset of its
   parent's (`check_attenuation`); any widening is `VIOLATED(attenuation_breach)`, bounded
   by `max_depth`.
@@ -69,11 +69,11 @@ Initial public release of sm-dat, promoted from `sm-arp`'s `dat-companion.md` sk
   obligation (SPEC §3.2, §5.4).
 - **Minimal revocation.** A grantor-hosted signed list with a freshness bound
   (`StaticRevocationList`); stale or absent ⇒ `INDETERMINATE(revocation_unknown)`.
-- **Conformance corpus.** 29 deterministic vectors under `vectors/dat/0.1/`, regenerable
+- **Conformance corpus.** 33 deterministic vectors under `vectors/dat/0.1/`, regenerable
   from `vectors/_generate.py` and replayed by `tests/`. CI runs them on 3.11 / 3.12 and
   asserts the corpus is reproducible.
 
 ### Reserved / deferred to 0.2
 - `authorization_ceremony` (WebAuthn/passkey grantor binding), CEL scope predicates,
-  `dat:initial-bind`, distributed/transparency-log revocation, and the ARP-side
-  `dat_grant_id` bridge (SPEC §9.1).
+  and distributed/transparency-log revocation. (`dat:initial-bind` and the ARP-side
+  `dat_grant_id` bridge ship in 0.1 — see Added above and SPEC §13.)

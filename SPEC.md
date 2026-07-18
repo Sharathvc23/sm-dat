@@ -40,7 +40,7 @@ capability sandbox (`sm-airlock`). See §10 for the ownership map.
 DAT is adjacent to OAuth scopes, WebAuthn, `did:key`, and W3C Verifiable Credentials but is
 none of them. Bundling it into ARP would make ARP sprawling; it deserves its own envelope, its
 own verification algorithm, and its own conformance corpus. `sm-dat` depends on `sm-arp` for
-crypto primitives the way `sm-rep` does — it never re-implements signing.
+crypto primitives the way `sm-parc` does — it never re-implements signing.
 
 ---
 
@@ -122,7 +122,7 @@ missing any of these is malformed and MUST verify as `VIOLATED(malformed)`.
 
 ### 3.2 Field notes
 
-- **`grant_id`** — globally unique, stable, opaque. Convention: `dat:<grantor_did>:<slug>`. It
+- **`grant_id`** — globally unique, stable, opaque. Convention: `dat:<grantor_did>:<sha256(grant)[:16]>`. It
   is the value an ARP receipt cites in its `authority_chain`.
 - **`human_summary`** — REQUIRED, ≤ 280 chars. Learning from ARP: a grant the principal cannot
   read is a grant the principal cannot meaningfully give. `alt_summaries` (array of
@@ -277,7 +277,8 @@ job is to never claim a guarantee it cannot recompute.
 ### 5.3 Composing multiple grants (`authority_chain`)
 
 An ARP receipt's `authority_chain` MAY list several `grant_id`s. The action is **authorized**
-iff at least one grant returns `SATISFIED` and none returns `VIOLATED`. Aggregation:
+iff every cited non-`initial_bind` grant returns `SATISFIED` — none `VIOLATED`, none
+`INDETERMINATE` — and at least one grant actually authorizes the action. Aggregation:
 
 - any grant `VIOLATED` ⇒ action `UNAUTHORIZED` (and surface which).
 - else any grant `INDETERMINATE` ⇒ action `INDETERMINATE`.
@@ -429,7 +430,7 @@ autonomous* authorization granted ahead of time. `sm-airlock` is the agent's own
 from sm_arp import Identity, build_action          # reuse — no new crypto
 from sm_dat import (
     build_grant, sign_grant, verify_grant, verify_authority_chain,
-    GrantStore, LedgerContext, Verdict,
+    LedgerContext, Verdict,
 )
 
 principal = Identity.generate()
@@ -441,16 +442,17 @@ grant = sign_grant(principal, build_grant(
     stateless={"amount_currency": "USD", "amount_cents_per_action_max": 5000,
                "counterparty_allowlist": ["domain:amctheatres.com"]},
     stateful={"amount_cents_per_period_max": 50000, "period": "month"},
+    not_before="2026-04-01T00:00:00Z",
     not_after="2026-06-30T23:59:59Z",
     human_summary="Buy movie tickets, ≤$50/mo, AMC only.",
 ))
 
 action = build_action(category="purchase", human_summary="2 tickets",
-                      amount={"currency": "USD", "cents": 3000},
+                      amount_cents=3000, currency="USD",
                       counterparty_label="domain:amctheatres.com")
 
-v: Verdict = verify_grant(grant, action, issued_at="2026-04-10T19:00:00Z",
-                          ledger_context=LedgerContext.from_agency_log("log.sqlite", grant["grant_id"]))
+v: Verdict = verify_grant(grant, action, "2026-04-10T19:00:00Z", agent_did=agent.did,
+                          ledger_context=LedgerContext.from_receipts([], grant["grant_id"]))
 assert v.status == "SATISFIED"        # or VIOLATED / INDETERMINATE, with v.reason
 ```
 
@@ -461,8 +463,14 @@ assert v.status == "SATISFIED"        # or VIOLATED / INDETERMINATE, with v.reas
 | `verify_grant(grant, action, issued_at, *, ledger_context=None, revocation_checker=None)` | The §5 decision procedure → `Verdict`. |
 | `verify_authority_chain(receipt, grants, ...)` | §5.3 multi-grant aggregation over a completed receipt. Supersedes ARP's thinner same-named check for DAT-envelope grants (§9.1). |
 | `LedgerContext` | Holds prior receipts and sums by `grant_id` + window. `from_receipts(receipts, grant_id)` filters in memory — the ARP store (`ReceiptLog`/`AgencyLog`) only `append`s today, so a future upstream `ReceiptLog.by_grant(grant_id, window)` would slot in here without changing callers. |
-| `GrantStore` | SQLite store for grantors to persist grants and serve revocation lists. |
+| `verify_grant_signature(grant)` | Just the JCS/Ed25519 signature check (a `verify_grant` stage, exposed alone). |
+| `check_attenuation(child, parent)` | §6: a child grant may only narrow — every scope dimension, incl. `not_after`. |
+| `StaticRevocationList(entries, *, fetched_at, max_age_seconds=86400)` | A revocation checker over a fetched list: revoked / known-live / **stale ⇒ None (INDETERMINATE)**. |
+| `build_initial_bind(...)` | §3.3: the principal↔agent binding grant — authorizes nothing by itself. |
 | `Verdict` | `{status, reason, grant_id, detail}` — never a bare bool. |
+
+*Not in 0.1:* a `GrantStore` (persistent grant/revocation-list store for grantors) is
+roadmap — grants and revocation lists are plain dicts/lists you persist yourself today.
 
 Dependencies: `sm-arp` (identity, canonicalization, signature, Agency Log), `jcs`,
 `cryptography`. No transport, no framework.
