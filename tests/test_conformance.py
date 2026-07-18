@@ -13,6 +13,7 @@ import pathlib
 import pytest
 
 from sm_dat import LedgerContext, StaticRevocationList, verify_authority_chain, verify_grant
+from sm_dat.verify import verify_authority_chain_trace
 
 VEC = pathlib.Path(__file__).parent.parent / "vectors" / "dat" / "0.1"
 FILES = sorted(VEC.glob("*.json"))
@@ -41,6 +42,25 @@ def test_vector(path):
 
     assert verdict.status == want_status, f"{path.stem}: status {verdict.status} != {want_status} ({verdict.detail})"
     assert verdict.reason == want_reason, f"{path.stem}: reason {verdict.reason!r} != {want_reason!r}"
+
+
+@pytest.mark.parametrize("path", FILES, ids=[p.stem for p in FILES])
+def test_trace_aggregate_matches_verify_authority_chain(path):
+    """verify_authority_chain is now a wrapper around
+    verify_authority_chain_trace — for every existing conformance vector,
+    the two must return identical aggregates. Proves the refactor changes
+    nothing already shipped and tested."""
+    v = json.loads(path.read_text())
+    if v["kind"] != "chain":
+        pytest.skip("trace function only applies to chain-kind vectors")
+
+    grants = {g["grant_id"]: g for g in v["grants"]}
+    ledgers = {gid: LedgerContext.from_receipts(v.get("ledger", []), gid) for gid in grants} if v.get("ledger") else None
+
+    direct = verify_authority_chain(v["receipt"], grants, ledger_contexts=ledgers)
+    traced = verify_authority_chain_trace(v["receipt"], grants, ledger_contexts=ledgers).aggregate
+
+    assert traced == direct, f"{path.stem}: trace aggregate {traced} != direct {direct}"
 
 
 def test_corpus_nonempty():

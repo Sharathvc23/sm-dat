@@ -75,3 +75,41 @@ def test_last_indeterminate_entry_wins_when_no_violation():
     reversed_receipt = dict(receipt, authority_chain=list(reversed(receipt["authority_chain"])))
     reversed_trace = verify_authority_chain_trace(reversed_receipt, grants)
     assert reversed_trace.aggregate.reason == "revocation_unknown", "last entry (v22) should win"
+
+
+def test_initial_bind_entry_flagged_and_neutral():
+    v = _load("32-chain_initial_bind_neutral_real_satisfies")
+    grants = {g["grant_id"]: g for g in v["grants"]}
+
+    trace = verify_authority_chain_trace(v["receipt"], grants)
+
+    assert trace.aggregate.status == "SATISFIED"
+    assert len(trace.chains) == 2  # one group per authority_chain entry
+    bind_group, real_group = trace.chains
+    assert bind_group[0].is_initial_bind is True
+    assert bind_group[0].verdict.status == "SATISFIED"
+    assert real_group[0].is_initial_bind is False
+
+
+def test_violation_in_first_entry_does_not_suppress_second_entrys_nodes():
+    v = _load("30-multigrant_one_violated")
+    grants = {g["grant_id"]: g for g in v["grants"]}
+    cap_5000_id, cap_4000_id = v["receipt"]["authority_chain"]  # order in vector 30
+
+    # Reverse the order: the violating grant (cap 4000, action is 4500) now
+    # comes FIRST. Under the old short-circuiting verify_authority_chain,
+    # this would return VIOLATED immediately and the second grant would
+    # never be looked at.
+    receipt = dict(v["receipt"], authority_chain=[cap_4000_id, cap_5000_id])
+
+    trace = verify_authority_chain_trace(receipt, grants)
+
+    assert trace.aggregate.status == "VIOLATED"
+    assert trace.aggregate.reason == "amount_cap_exceeded"
+    assert len(trace.chains) == 2, "both entries must be recorded, not just the first"
+    assert trace.chains[0][0].grant_id == cap_4000_id
+    assert trace.chains[0][0].verdict.status == "VIOLATED"
+    assert trace.chains[1][0].grant_id == cap_5000_id
+    assert trace.chains[1][0].verdict.status == "SATISFIED", (
+        "the second grant is fully evaluated even though the first entry violated"
+    )
