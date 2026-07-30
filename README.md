@@ -122,9 +122,8 @@ re-implements crypto.
 
 ## License
 
-[MIT](./LICENSE)
+MIT © 2026 StellarMinds. See [LICENSE](./LICENSE).
 
 ---
 
-Built at [labs.stellarminds.ai](https://labs.stellarminds.ai).
-*First release: 2026-06-25 (private phase — not on PyPI yet; install from a local checkout or a full-SHA git pin).*
+Part of the **NANDA** ecosystem · built by [StellarMinds](https://stellarminds.ai).
