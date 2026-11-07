@@ -5,9 +5,10 @@ to sm-dat's verifier via make_dat_verifier. Requires sm-arp >= 0.3.0 (the bridge
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
-from sm_arp import build_action, dat_grant_payload, issue_receipt, verify_authority_chain
+from sm_arp import build_action, dat_grant_payload, issue_receipt, verify_authority_chain, verify_direct_grant
 
 from sm_dat import Identity, LedgerContext, build_grant, make_dat_verifier, sign_grant
 
@@ -16,8 +17,8 @@ A = Identity.from_seed(b"\x02" * 32)   # agent / grantee
 WHEN = "2026-04-10T19:00:00Z"
 
 
-def movie_dat() -> dict[str, Any]:
-    return sign_grant(P, build_grant(
+def movie_dat(grantor: Identity = P) -> dict[str, Any]:
+    return sign_grant(grantor, build_grant(
         grantee_did=A.did, action_categories=["purchase"],
         not_before="2026-04-01T00:00:00Z", not_after="2026-06-30T23:59:59Z",
         human_summary="Buy tickets, <=$50, AMC only.",
@@ -89,3 +90,15 @@ def test_stateful_with_ledger_decides():
     res = verify_authority_chain(r, {g["receipt_id"]: g}, dats={dat["grant_id"]: dat},
                                  dat_verifier=verifier)
     assert res.ok  # 3000 + 1000 <= 5000
+
+def test_direct_grant_checks_dat_owner_with_real_signatures():
+    at = datetime.fromisoformat(WHEN)
+    for signer in (P, Identity.generate()):
+        dat = movie_dat(signer)
+        grant = issue_receipt(P, principal_did=P.did, issued_at=WHEN, action=build_action(
+            category="authority_granted", human_summary="Movie purchase",
+            machine_payload=dat_grant_payload(dat)))
+        action = action_receipt(grant["receipt_id"], cents=3000)
+        result = verify_direct_grant(action, grant, at=at, require_dat=True,
+                                     dats={dat["grant_id"]: dat}, dat_verifier=make_dat_verifier())
+        assert result.ok == (signer.did == P.did)

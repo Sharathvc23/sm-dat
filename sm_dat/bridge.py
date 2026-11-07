@@ -37,6 +37,9 @@ def make_dat_verifier(
     ledgers = ledger_contexts or {}
 
     def _verify(dat: dict[str, Any], receipt: dict[str, Any]) -> VerifyResult:
+        principal = receipt.get("principal_did")
+        if not isinstance(principal, str) or not principal or dat.get("grantor_did") != principal:
+            return VerifyResult(False, "authority_chain", "violated:grantor_mismatch")
         verdict = verify_grant(
             dat,
             receipt["action"],
