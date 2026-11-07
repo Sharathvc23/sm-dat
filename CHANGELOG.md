@@ -4,6 +4,10 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.2.1]
+
+The ARP verifier bridge rejects a DAT issued by a different principal. Requires sm-arp 0.3.4 or later.
+
 ## [0.2.0] — 2026-07-18
 
 ### Added
