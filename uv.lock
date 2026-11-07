@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 
 [[package]]
@@ -246,21 +246,21 @@ wheels = [
 
 [[package]]
 name = "sm-arp"
-version = "0.3.0"
+version = "0.3.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "base58" },
     { name = "cryptography" },
     { name = "jcs" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/97/12/80a1c38d3128377b7ea5eb96c09fd0a632cb12eed0084660f68369bdf47d/sm_arp-0.3.0.tar.gz", hash = "sha256:4dd92010ea664e5463236875cefef4b45df86a1adecc361ad015c5993204fe77", size = 23638, upload-time = "2026-06-25T07:50:00.661Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/2d/8563a2e4030a8c019e50beeb32106e31780bf1679d40b9d9b85802256467/sm_arp-0.3.4.tar.gz", hash = "sha256:616bf06d21fcceea8c0dc4286bfb71a54f48174d891a34987ee98abd9a636ad8", size = 26146, upload-time = "2026-11-07T17:41:31.119Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/b9/c420eb510ce93dab891259f3ab1aa5f2671366b05bda0d2f1993fcac37f4/sm_arp-0.3.0-py3-none-any.whl", hash = "sha256:0aff04f586e97a5c07d94857cc8e8c927cd9987d12b607a4598e97d6c05da92d", size = 20791, upload-time = "2026-06-25T07:49:59.279Z" },
+    { url = "https://files.pythonhosted.org/packages/55/3e/8cbe69e6a4200363122ddc807d87ed59c69d339f8b107aec744c6cadab47/sm_arp-0.3.4-py3-none-any.whl", hash = "sha256:f8f956c48715963023d03299e3890f83b6f1a4f9e7dae894369fe477d48a9f2e", size = 22593, upload-time = "2026-11-07T17:41:29.793Z" },
 ]
 
 [[package]]
 name = "sm-dat"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "base58" },
@@ -280,6 +280,6 @@ requires-dist = [
     { name = "cryptography" },
     { name = "jcs" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
-    { name = "sm-arp", specifier = ">=0.3.0" },
+    { name = "sm-arp", specifier = ">=0.3.4" },
 ]
 provides-extras = ["dev"]
