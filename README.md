@@ -59,6 +59,25 @@ declare a revocation source** — and once declared, verifying without a checker
 `INDETERMINATE`, never a silent pass. And a child grant that omits a cap its parent has
 is a *widening* — `check_attenuation` rejects it.)
 
+Two switches let a relying party refuse what the defaults accept. Neither loosens anything:
+
+```python
+verify_grant(grant, buy, when, agent_did=agent.did,
+             require_revocation_source=True,      # a grant with revocation=None → VIOLATED(no_revocation_source)
+             trusted_grantors={principal.did})    # root grantor not in the set → VIOLATED(untrusted_grantor)
+```
+
+`agent_did` is required (since 0.3.0): a verdict that never compared the actor to the
+grantee vouches for nobody; pass `None` only to get `INDETERMINATE(grantee_unbound)` back.
+
+In a sub-delegation chain (`verify_authority_chain`), every ancestor is held to the same
+standard as the leaf — signature, continuity, attenuation on every dimension, **its own
+validity window and revocation at the action's time** — and the depth bound is the **root**
+grant's `max_depth`, never the leaf's. A revoked or not-yet-valid parent cannot lend
+authority to a child, however well the child narrows. (`SPEC.md` §6.2 has the algorithm.)
+The ARP bridge (`make_dat_verifier`) additionally binds the grantor to the receipt's
+`principal_did` before evaluating anything.
+
 ## The one decision that defines this library
 
 Authorization checks have **three** outcomes, not two: `SATISFIED`, `VIOLATED`, and

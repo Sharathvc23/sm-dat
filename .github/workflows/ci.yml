@@ -16,7 +16,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install (pulls sm-arp from PyPI)
+      # sm-dat 0.3.0 pins sm-arp>=0.4.0, which is merged on sm-arp master but not
+      # yet published to PyPI (latest there: 0.3.4). Install it from the merged
+      # SHA first so the editable install below resolves; drop this step once
+      # sm-arp 0.4.0 is on PyPI.
+      - name: Install sm-arp 0.4.0 (merged SHA; not yet on PyPI)
+        run: pip install "sm-arp @ git+https://github.com/Sharathvc23/sm-arp@f182c0c07556147d57548945f1a3b00088138aad"
+      - name: Install
         run: pip install -e ".[dev]"
       - name: Conformance corpus
         run: python -m pytest -q
