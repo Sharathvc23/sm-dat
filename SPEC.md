@@ -229,22 +229,42 @@ against a defined action context. Rules:
 
 ## 5. Verification
 
-`verify_grant(dat, action, issued_at, *, ledger_context=None, revocation_checker=None)`
-returns a **Verdict**: a status in `{SATISFIED, VIOLATED, INDETERMINATE}` plus a reason code.
+`verify_grant(dat, action, issued_at, *, agent_did, receipt_id="", ledger_context=None,
+revocation_checker=None, predicate_evaluator=None, require_revocation_source=False,
+trusted_grantors=None)` returns a **Verdict**: a status in `{SATISFIED, VIOLATED, INDETERMINATE}`
+plus a reason code. `agent_did` — the acting agent, i.e. the receipt's `issuer_did` — is
+**required**: a grant is a statement about a grantee, and a verdict that never compared the actor
+to the grantee vouches for nobody. A caller that does not know the actor passes `None` and gets
+`INDETERMINATE(grantee_unbound)`.
+
+Two relying-party switches tighten the defaults; neither loosens anything:
+
+| Option | Default | Effect when set |
+|--------|---------|-----------------|
+| `require_revocation_source: bool` | `False` | A grant (or any ancestor, §6) that declares no `revocation` is `VIOLATED(no_revocation_source)`. The default keeps 0.1's rule — the revocation gate runs only for grants that declare a source — which makes a grant with `revocation: null` irrevocable by omission; a relying party that will not accept that sets this. |
+| `trusted_grantors: set[str] \| None` | `None` | The **root** grantor of authority MUST be in the set, else `VIOLATED(untrusted_grantor)`. This is the library-side half of obligation O1 (§5.4). `verify_grant` applies it to a root grant directly; for a child grant it cannot see the root and answers `INDETERMINATE(root_grantor_unresolved)` — the chain walk (§5.3, §6) resolves the root and applies the set there. An empty set trusts nobody. |
 
 ### 5.1 Ordered decision procedure
 
 Checks run in order; the first non-SATISFIED result short-circuits and is returned.
 
 1. **Structure** — all required fields present and well-typed, else `VIOLATED(malformed)`.
+   "Well-typed" includes every timestamp: the grant's `issued_at`, `not_before`, `not_after` and
+   the action's `issued_at` MUST be RFC 3339 **with a UTC offset** (a naive timestamp would be
+   read in the verifier's local zone, making the verdict depend on where it runs). A timestamp
+   that does not parse is `VIOLATED(malformed)` with the field named in `detail` — a verdict,
+   never an exception escaping the decision procedure.
 1a. **Self-grant** — `grantor_did != grantee_did`, else `VIOLATED(self_grant)`. An agent cannot
     authorize itself; authority must originate with another party. Checked *before* signature so
     a validly-signed self-grant still fails. (This catches only the literal case — see the
     grantor-control precondition in §3.2 for the deeper one the library cannot detect.)
 2. **Signature** — `dat.signature` verifies over the JCS-canonical envelope under
    `grantor_did`'s key, else `VIOLATED(bad_signature)`.
-3. **Grantee** — `action`'s acting agent DID equals `grantee_did` (or is the terminal grantee
-   of a valid sub-delegation chain, §6), else `VIOLATED(grantee_mismatch)`.
+2a. **Grantor trust** — if `trusted_grantors` is supplied: a root grant's `grantor_did` MUST be
+    in it, else `VIOLATED(untrusted_grantor)`; a child grant ⇒
+    `INDETERMINATE(root_grantor_unresolved)` (the chain walk decides, §6).
+3. **Grantee** — `agent_did` absent ⇒ `INDETERMINATE(grantee_unbound)`; present and not equal to
+   `grantee_did` ⇒ `VIOLATED(grantee_mismatch)`.
 4. **Temporal** — `not_before ≤ issued_at ≤ not_after`, else
    `VIOLATED(not_yet_valid | expired)`.
 5. **Revocation** — if `revocation` is present:
@@ -252,6 +272,8 @@ Checks run in order; the first non-SATISFIED result short-circuits and is return
      `VIOLATED(revoked)`.
    - without a checker, or the checker cannot produce a list fresher than
      `max_revocation_age_seconds` ⇒ `INDETERMINATE(revocation_unknown)`.
+   If `revocation` is absent and `require_revocation_source` is set ⇒
+   `VIOLATED(no_revocation_source)`; otherwise an undeclared source is not checked.
 6. **Category** — `action.category ∈ scope.action_categories`, else
    `VIOLATED(category_out_of_scope)`.
 7. **Stateless constraints** (§4.1) — each present constraint holds, else
@@ -262,7 +284,9 @@ Checks run in order; the first non-SATISFIED result short-circuits and is return
 9. **Predicate** (§4.4) — if non-null: unsupported ⇒ `INDETERMINATE(predicate_unsupported)`;
    false ⇒ `VIOLATED(predicate_failed)`.
 10. **Sub-delegation** (§6) — if `delegation.parent_grant_id` is set, the parent chain MUST
-    independently authorize the action under attenuation, else propagate its verdict.
+    independently authorize the action under attenuation, else propagate its verdict. This step
+    is performed by the chain walk in `verify_authority_chain` (which has the `grants` map);
+    `verify_grant` alone evaluates the one grant it is handed.
 
 If all checks pass ⇒ `SATISFIED`.
 
@@ -322,7 +346,7 @@ never as an implicit pass. A reviewer should be able to check all four at a glan
 
 | # | The library assumes… | The verifier MUST… | If it cannot |
 |---|----------------------|--------------------|--------------|
-| **O1 — Grantor is the human** | `grantor_did` is controlled by the actual principal, not the grantee agent (§3.2). A valid signature proves only key-possession. | Bind `grantor_did` to the human out of band (registration-time identity proofing; later, `authorization_ceremony`). `did:key` is necessary, not sufficient. | Reject. An unbound grantor makes every downstream check meaningless. |
+| **O1 — Grantor is the human** | `grantor_did` is controlled by the actual principal, not the grantee agent (§3.2). A valid signature proves only key-possession. | Bind `grantor_did` to the human out of band (registration-time identity proofing; later, `authorization_ceremony`). `did:key` is necessary, not sufficient. Then **tell the library**: pass the bound DIDs as `trusted_grantors` so the root grantor is asserted, not assumed (§5). The ARP bridge (`make_dat_verifier`, §9) binds the grantor to the receipt's `principal_did` automatically. | Reject. An unbound grantor makes every downstream check meaningless. |
 | **O2 — Ledger is complete** | The `LedgerContext` for a stateful cap contains **every** prior receipt citing the grant within the window (§4.2). | Supply a ledger known-complete for the period. A partial ledger *undercounts* and can wrongly admit an over-budget action. | Return `INDETERMINATE(accounting_required)`; do not pass on a ledger you cannot vouch is complete. |
 | **O3 — Order is well-defined** | Every receipt carries a stable `receipt_id`, so the total order `(issued_at, receipt_id)` is defined (§4.2). | Ensure receipts have unique `receipt_id`s and feed them through unchanged. | Treat tied-timestamp receipts as undecidable → `INDETERMINATE`, not a guessed order. |
 | **O4 — Timestamps are trustworthy** | `action.issued_at` is the true time of the action. It is **agent-asserted** — the ARP receipt signature covers it, but the agent chose it. | Corroborate `issued_at` where it gates a decision (window membership, expiry, per-period caps). A backdated/forward-dated timestamp can slip an action inside a grant window or dodge a cap. See ARP's threat model. | Where the timestamp cannot be corroborated and the decision turns on it, prefer `INDETERMINATE` or escalate (e.g. `sm-oversight`). |
@@ -342,22 +366,73 @@ only ever narrow, never broaden.**
 
 - `delegation.parent_grant_id` links a child to its parent; each link is recorded in the ARP
   receipt's `authority_chain`.
-- For every constraint dimension, the child MUST be at least as restrictive: `categories ⊆`,
-  `per_action_max ≤`, `allowlist ⊆`, `jurisdictions ⊆`, period caps `≤`, and `not_after ≤`.
-- The verifier walks parent→child; **any** widening at **any** link ⇒
-  `VIOLATED(attenuation_breach)`.
-- `delegation.max_depth` bounds chain length (default 4); exceeding it ⇒
-  `VIOLATED(depth_exceeded)`.
-- **Every ancestor is a distinct signed grant, not a trusted data record.** A verifier walking
-  `parent_grant_id` MUST independently verify each ancestor's signature (§4.1) — an unsigned or
-  forged ancestor reached this way is exactly as dangerous as one presented as the entry grant.
-  A verifier MUST also confirm the delegation relationship is continuous at every link: the
-  child's `grantor_did` MUST equal the parent's `grantee_did`. Either failure ⇒
-  `VIOLATED(bad_signature)` or `VIOLATED(chain_discontinuity)` respectively — a chain is only as
-  trustworthy as its weakest link, and attenuation-only checking (narrowing scope) says nothing
-  about whether an ancestor is real or belongs to this delegation relationship at all.
 
-Attenuation is checked structurally from the grants themselves — it does not require the ledger.
+### 6.1 Attenuation table
+
+`check_attenuation(child, parent)` — for every dimension the child MUST be at least as
+restrictive. **Any** widening at **any** link ⇒ `VIOLATED(attenuation_breach)` (the dimension
+is named in `detail`).
+
+| Dimension | Rule (child vs parent) | Note |
+|-----------|------------------------|------|
+| `scope.action_categories` | `⊆` | |
+| `stateless.amount_cents_per_action_max` | `≤` | child omitting a cap the parent has is a widening |
+| `stateless.amount_currency` | `=` (when the parent sets one) | a cap is denominated; dropping or changing the currency re-denominates the bound |
+| `stateless.counterparty_allowlist` | `⊆` (when the parent sets one) | child omitting it is a widening |
+| `stateless.jurisdictions` | `⊆` (when the parent sets one) | child omitting it is a widening |
+| `stateful.amount_cents_per_period_max` | `≤` | |
+| `scope.predicate` | identical string (when the parent sets one) | 0.1 has no predicate algebra to decide "narrower"; a child MUST carry its parent's predicate verbatim |
+| `not_before` | `≥` | a child may not start before its parent |
+| `not_after` | `≤` | a child may not outlive its parent |
+| `delegation.max_depth` | `≤` (absent ⇒ 4) | the bound is the principal's to set; a leaf cannot lift it |
+
+A grant whose timestamps or structure cannot be read is `VIOLATED(malformed)`, never an
+exception. Attenuation is checked structurally from the grants themselves — it does not require
+the ledger.
+
+### 6.2 Chain walk algorithm
+
+Given an `authority_chain` entry `gid` (the **leaf**) and the `grants` map, a verifier MUST:
+
+1. **Leaf structure** — `_structure(leaf)` (§5.1 step 1) and the action's `issued_at`, else
+   `VIOLATED(malformed)`.
+2. **Walk leaf → root** along `parent_grant_id`. At each link, with `child` the current grant
+   and `parent` the one it names, stop at the first non-SATISFIED result:
+   1. `parent_grant_id` already visited ⇒ `VIOLATED(chain_cycle)` (a cycle has no root).
+   2. parent not in `grants` ⇒ `VIOLATED(grant_not_found)`.
+   3. parent fails structure (§5.1 step 1) ⇒ `VIOLATED(malformed)`.
+   4. parent `grantor_did == grantee_did` ⇒ `VIOLATED(self_grant)`.
+   5. **Every ancestor is a distinct signed grant, not a trusted data record**: parent signature
+      fails ⇒ `VIOLATED(bad_signature)`. An unsigned or forged ancestor reached this way is exactly
+      as dangerous as one presented as the entry grant.
+   6. **Continuity** — `child.grantor_did ≠ parent.grantee_did` ⇒ `VIOLATED(chain_discontinuity)`
+      (closes splicing an ancestor from an unrelated delegation relationship).
+   7. **Attenuation** — `check_attenuation(child, parent)` (§6.1) ⇒ `VIOLATED(attenuation_breach)`.
+   8. **Ancestor window** — at the action's `issued_at`: `issued_at < parent.not_before` ⇒
+      `VIOLATED(ancestor_not_yet_valid)`; `issued_at > parent.not_after` ⇒
+      `VIOLATED(ancestor_expired)`. An ancestor outside its window had no authority to delegate
+      at that moment, however well the child narrows.
+   9. **Ancestor revocation** — same gate as §5.1 step 5, on the parent's `grant_id`: declared
+      source + no checker, or checker cannot resolve ⇒ `INDETERMINATE(revocation_unknown)`;
+      revoked as of `issued_at` ⇒ `VIOLATED(ancestor_revoked)`; no declared source and
+      `require_revocation_source` ⇒ `VIOLATED(no_revocation_source)`. A revoked parent cannot
+      lend authority to a child.
+3. **Depth** — with `depth` the number of links walked and the bound read from the **root**
+   grant's `delegation.max_depth` (absent ⇒ 4): `depth > max_depth` ⇒ `VIOLATED(depth_exceeded)`.
+   The bound MUST NOT be read from the leaf: the leaf is signed by the delegating agent, who could
+   set it arbitrarily. Because `max_depth` is an attenuated dimension (§6.1), the root's value is
+   also the chain's maximum.
+4. **Root grantor** — if `trusted_grantors` is supplied and the root's `grantor_did` is not in
+   it ⇒ `VIOLATED(untrusted_grantor)`. The root is the only grantor whose trust is a question: every
+   other link's grantor is a grantee one level up, already bound by continuity.
+5. **Leaf** — only if every step above passed, run `verify_grant` on the leaf (§5.1) with the
+   receipt's `issuer_did` as `agent_did`; this is the entry's verdict. If the walk stopped
+   earlier, the walk's verdict is the entry's and the leaf is reported `INDETERMINATE(not_evaluated)`
+   in the trace rather than guessed.
+
+A chain is only as trustworthy as its weakest link: attenuation-only checking (narrowing scope)
+says nothing about whether an ancestor is real, belongs to this delegation relationship, was
+valid at the time, or had already been revoked.
 
 ---
 
@@ -480,11 +555,14 @@ assert v.status == "SATISFIED"        # or VIOLATED / INDETERMINATE, with v.reas
 |---------|------|
 | `build_grant(...)` | Construct an unsigned envelope (validates structure). |
 | `sign_grant(grantor, grant)` | JCS-canonicalize + Ed25519-sign by the grantor. |
-| `verify_grant(grant, action, issued_at, *, ledger_context=None, revocation_checker=None)` | The §5 decision procedure → `Verdict`. |
-| `verify_authority_chain(receipt, grants, ...)` | §5.3 multi-grant aggregation over a completed receipt. Supersedes ARP's thinner same-named check for DAT-envelope grants (§9.1). |
+| `verify_grant(grant, action, issued_at, *, agent_did, receipt_id="", ledger_context=None, revocation_checker=None, predicate_evaluator=None, require_revocation_source=False, trusted_grantors=None)` | The §5 decision procedure → `Verdict`. `agent_did` is required (0.3.0). |
+| `verify_authority_chain(receipt, grants, *, ledger_contexts=None, revocation_checker=None, predicate_evaluator=None, require_revocation_source=False, trusted_grantors=None)` | §5.3 multi-grant aggregation over a completed receipt, with the §6.2 chain walk per entry. Supersedes ARP's thinner same-named check for DAT-envelope grants (§9.1). |
+| `verify_authority_chain_trace(receipt, grants, ...)` | §5.3a: same aggregate plus the per-node `chains` trace. Same keyword options. |
+| `make_dat_verifier(*, ledger_contexts=None, revocation_checker=None, predicate_evaluator=None, require_revocation_source=False, trusted_grantors=None)` | §9: the `dat_verifier` callback for `sm_arp.verify_authority_chain`. Binds `grantor_did` to the receipt's `principal_did` before anything else. |
+| `parse_rfc3339(ts)` | The verifier's timestamp parser: aware UTC datetime, or `None` for anything that is not an RFC 3339 string with an offset. Never raises. |
 | `LedgerContext` | Holds prior receipts and sums by `grant_id` + window. `from_receipts(receipts, grant_id)` filters in memory — the ARP store (`ReceiptLog`/`AgencyLog`) only `append`s today, so a future upstream `ReceiptLog.by_grant(grant_id, window)` would slot in here without changing callers. |
 | `verify_grant_signature(grant)` | Just the JCS/Ed25519 signature check (a `verify_grant` stage, exposed alone). |
-| `check_attenuation(child, parent)` | §6: a child grant may only narrow — every scope dimension, incl. `not_after`. |
+| `check_attenuation(child, parent)` | §6.1: a child grant may only narrow — every scope dimension, both window ends, currency, predicate and `max_depth`. |
 | `StaticRevocationList(entries, *, fetched_at, max_age_seconds=86400)` | A revocation checker over a fetched list: revoked / known-live / **stale ⇒ None (INDETERMINATE)**. |
 | `build_initial_bind(...)` | §3.3: the principal↔agent binding grant — authorizes nothing by itself. |
 | `Verdict` | `{status, reason, grant_id, detail}` — never a bare bool. |
@@ -513,8 +591,17 @@ reference verifier. Minimum coverage for `0.1`:
   short-circuits to pass; a chain of *only* initial-bind ⇒ `VIOLATED(initial_bind_authorizes_nothing)`;
 - expiry (before / within / after), not-yet-valid;
 - revocation: active, revoked-before-action, revoked-after-action, stale-list ⇒ INDETERMINATE;
-- attenuation: valid narrowing, and each widening dimension ⇒ attenuation_breach;
-- depth exceeded;
+- attenuation: valid narrowing, and each widening dimension ⇒ attenuation_breach (incl.
+  `not_before`, `amount_currency`, `predicate`, `max_depth`);
+- depth exceeded — bound read from the **root**, with a within-bound control; a leaf declaring a
+  larger `max_depth` than its root ⇒ attenuation_breach; a `parent_grant_id` cycle ⇒ chain_cycle;
+- ancestor checks in the chain walk: ancestor_revoked, ancestor revocation with no checker ⇒
+  INDETERMINATE, ancestor live, ancestor_not_yet_valid, ancestor_expired;
+- policy switches: `require_revocation_source` (refused / satisfied, incl. on an ancestor),
+  `trusted_grantors` (untrusted / trusted, on a root and on a chain's root, and a child grant
+  verified alone ⇒ root_grantor_unresolved); `agent_did=None` ⇒ grantee_unbound;
+- malformed timestamps (action `issued_at`, grant `not_before` without offset, grant
+  `not_after`) ⇒ malformed, as verdicts;
 - multi-grant aggregation: all-satisfied, one-violated, one-indeterminate;
 - malformed envelopes; bad signature; grantee mismatch;
 - non-null predicate on a non-predicate verifier ⇒ INDETERMINATE.

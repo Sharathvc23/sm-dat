@@ -4,6 +4,66 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/) and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-11-11
+
+Audit 2026-11. Requires sm-arp ≥ 0.4.0.
+
+### Breaking
+- **`verify_grant(..., agent_did=...)` is a required keyword.** Omitting it is a
+  `TypeError`; passing `None` is `INDETERMINATE(grantee_unbound)`. Previously
+  `agent_did=None` silently skipped the grantee check.
+- A structurally malformed grant reached by the chain walk (e.g. a non-object
+  `delegation`) now reports the spec'd `VIOLATED(malformed)` with the defect
+  named in `detail`, not the `malformed_grant` catch-all (which remains for
+  defects the structural check cannot name).
+- Timestamps MUST carry a UTC offset (RFC 3339). A naive `not_before`/
+  `not_after`/`issued_at` is `VIOLATED(malformed)`; `build_grant` rejects it at
+  construction. Previously it was read in the verifier's local zone.
+
+### Fixed
+- **Chain walk: ancestor revocation and validity window** (SPEC §6.2). The walk
+  checked ancestor signatures, continuity and attenuation but never whether an
+  ancestor was revoked or inside its own window at the action's time, so a
+  revoked parent still authorized a child-cited action and an action before the
+  parent's `not_before` was `SATISFIED`. New reasons: `ancestor_revoked`,
+  `ancestor_not_yet_valid`, `ancestor_expired`; an ancestor declaring a
+  revocation source with no checker supplied is `INDETERMINATE(revocation_unknown)`.
+  Ancestors are also structure- and self-grant-checked.
+- **Depth bound is read from the root, not the leaf.** `max_depth` was taken
+  from the leaf grant — the one the delegating agent signs. It is now the
+  root's, and `max_depth` is an attenuated dimension (child ≤ parent), so a leaf
+  declaring `max_depth: 99` under a root of 4 is `attenuation_breach`. A
+  `parent_grant_id` cycle (which has no root) terminates as
+  `VIOLATED(chain_cycle)`.
+- **Attenuation covers every dimension** (SPEC §6.1): added `not_before`
+  (child may not start earlier), `amount_currency` (must equal), `predicate`
+  (must be carried verbatim), `max_depth` (≤).
+- **Verdicts, not exceptions.** A malformed action `issued_at` or grant
+  timestamp returned a `ValueError` from `verify_grant`/`check_attenuation`;
+  it is now `VIOLATED(malformed, <field>)`.
+
+### Added
+- `require_revocation_source: bool = False` on `verify_grant`,
+  `verify_authority_chain(_trace)` and `make_dat_verifier`: when set, a grant or
+  ancestor with `revocation: null` is `VIOLATED(no_revocation_source)`. The
+  default keeps the documented "revocation only when declared" rule.
+- `trusted_grantors: set[str] | None = None` on the same entry points: the
+  **root** grantor must be in the set, else `VIOLATED(untrusted_grantor)`.
+  `verify_grant` on a child grant cannot see the root and answers
+  `INDETERMINATE(root_grantor_unresolved)`; the chain walk resolves it. The ARP
+  bridge's existing grantor-to-`principal_did` binding is now documented.
+- `parse_rfc3339` exported; `GrantNode`/`ChainTrace` carry the new ancestor
+  verdicts.
+- 26 conformance vectors (34 → 60) covering every new reason, the four
+  attenuation gaps, root-bound depth with a within-bound control, and the
+  cycle. The trace-equivalence test no longer skips the grant-kind vectors: each
+  is lifted into a one-entry chain so the whole corpus exercises both entry
+  points.
+
+### CI
+- sm-arp 0.4.0 is merged but not yet on PyPI (latest 0.3.4); `ci.yml` installs
+  it from the merged SHA first. Drop that step once 0.4.0 is published.
+
 ## [0.2.1]
 
 The ARP verifier bridge rejects a DAT issued by a different principal. Requires sm-arp 0.3.4 or later.

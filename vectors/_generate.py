@@ -22,6 +22,7 @@ P = Identity.from_seed(b"\x01" * 32)   # principal / grantor
 A = Identity.from_seed(b"\x02" * 32)   # agent / grantee
 A2 = Identity.from_seed(b"\x03" * 32)  # sub-agent
 A3 = Identity.from_seed(b"\x04" * 32)  # unrelated third party (chain-discontinuity vectors)
+A4 = Identity.from_seed(b"\x05" * 32)  # sub-sub-agent (depth vectors)
 PURCHASE = "2026-04-10T19:00:00Z"
 
 vectors: list[dict] = []
@@ -279,6 +280,156 @@ rcpt_bind_only = {"issuer_did": A.did, "issued_at": PURCHASE,
                   "action": act(amount_cents=3000, jurisdiction="US-MA")}
 add("chain_initial_bind_only_authorizes_nothing", kind="chain", receipt=rcpt_bind_only,
     grants=[G_BIND], expect=["VIOLATED", "initial_bind_authorizes_nothing"])
+
+# =========================================================================
+# Audit 2026-11 (0.3.0): verdicts not exceptions, policy switches, ancestor
+# validity/revocation in the chain walk, root-bound depth, full attenuation.
+# Appended after the 0.2 corpus so existing vector numbers are stable.
+# =========================================================================
+
+# --- malformed timestamps are verdicts, never exceptions -----------------
+add("malformed_action_issued_at", kind="grant", grant=G, action=act(jurisdiction="US-MA"),
+    issued_at="not-a-timestamp", agent_did=A.did, expect=["VIOLATED", "malformed"])
+_naive = copy.deepcopy(G)
+_naive["not_before"] = "2026-04-01T00:00:00"  # RFC 3339 requires a UTC offset
+add("malformed_grant_not_before_no_offset", kind="grant", grant=_naive,
+    action=act(jurisdiction="US-MA"), issued_at=PURCHASE, agent_did=A.did,
+    expect=["VIOLATED", "malformed"])
+_badna = copy.deepcopy(G)
+_badna["not_after"] = "end of June"
+add("malformed_grant_not_after", kind="grant", grant=_badna, action=act(jurisdiction="US-MA"),
+    issued_at=PURCHASE, agent_did=A.did, expect=["VIOLATED", "malformed"])
+
+# --- the acting agent must be bound (agent_did is required in 0.3.0) -----
+add("grantee_unbound_indeterminate", kind="grant", grant=G, action=act(jurisdiction="US-MA"),
+    issued_at=PURCHASE, agent_did=None, expect=["INDETERMINATE", "grantee_unbound"])
+
+# --- require_revocation_source: refuse irrevocable-by-omission -----------
+add("no_revocation_source_refused_when_required", kind="grant", grant=G,
+    action=act(jurisdiction="US-MA"), issued_at=PURCHASE, agent_did=A.did,
+    require_revocation_source=True, expect=["VIOLATED", "no_revocation_source"])
+add("revocation_source_declared_satisfies_requirement", kind="grant", grant=GR,
+    action=act(jurisdiction="US-MA"), issued_at=PURCHASE, agent_did=A.did,
+    require_revocation_source=True,
+    revocation={"entries": [], "fetched_at": fresh, "max_age": 86400},
+    expect=["SATISFIED", "ok"])
+
+# --- trusted_grantors: bind the root of authority (SPEC §5.4 O1) ---------
+add("untrusted_grantor", kind="grant", grant=G, action=act(jurisdiction="US-MA"),
+    issued_at=PURCHASE, agent_did=A.did, trusted_grantors=[A3.did],
+    expect=["VIOLATED", "untrusted_grantor"])
+add("trusted_grantor", kind="grant", grant=G, action=act(jurisdiction="US-MA"),
+    issued_at=PURCHASE, agent_did=A.did, trusted_grantors=[P.did],
+    expect=["SATISFIED", "ok"])
+# verify_grant alone cannot see a child's root: it defers to the chain walk.
+add("child_grant_root_grantor_unresolved_without_chain", kind="grant", grant=CHILD_OK,
+    action=act(amount_cents=2500, jurisdiction="US-MA"), issued_at=PURCHASE, agent_did=A2.did,
+    trusted_grantors=[P.did], expect=["INDETERMINATE", "root_grantor_unresolved"])
+
+
+def sub(grantor, grantee, parent, **over):
+    """A child grant narrowing ``parent`` (<=$30, AMC only), overridable."""
+    kw = dict(grantee_did=grantee.did, action_categories=["purchase"],
+              not_after="2026-06-30T23:59:59Z", not_before="2026-04-01T00:00:00Z",
+              human_summary="Sub: <=$30, AMC only.",
+              stateless={"amount_currency": "USD", "amount_cents_per_action_max": 3000,
+                         "counterparty_allowlist": ["domain:amctheatres.com"]},
+              parent_grant_id=parent["grant_id"])
+    kw.update(over)
+    return sign_grant(grantor, build_grant(**kw))
+
+
+def chain_receipt(leaf, issuer=A2, **act_over):
+    kw = dict(amount_cents=2500, jurisdiction="US-MA")
+    kw.update(act_over)
+    return {"issuer_did": issuer.did, "issued_at": PURCHASE,
+            "authority_chain": [leaf["grant_id"]], "action": act(**kw)}
+
+
+# --- depth is bound by the ROOT grant, not the leaf ----------------------
+# Root allows one hop. Each child attenuates max_depth correctly (1 <= 1), so
+# the only thing wrong with the grandchild is that it is one hop too deep.
+ROOT_D = base_grant(max_depth=1)
+CHILD_D = sub(A, A2, ROOT_D, max_depth=1)
+GRANDCHILD_D = sub(A2, A4, CHILD_D, max_depth=1, stateless={
+    "amount_currency": "USD", "amount_cents_per_action_max": 2000,
+    "counterparty_allowlist": ["domain:amctheatres.com"]})
+add("subdelegation_depth_exceeded_root_bound", kind="chain",
+    receipt=chain_receipt(GRANDCHILD_D, issuer=A4, amount_cents=1500),
+    grants=[ROOT_D, CHILD_D, GRANDCHILD_D], expect=["VIOLATED", "depth_exceeded"])
+# The same three grants, one hop shorter, are fine: depth 1 <= root max_depth 1.
+add("subdelegation_depth_within_root_bound", kind="chain", receipt=chain_receipt(CHILD_D),
+    grants=[ROOT_D, CHILD_D], expect=["SATISFIED", "ok"])
+# Audit case: a leaf that declares max_depth=99 under a root of 4 cannot lift
+# the bound — max_depth is an attenuated dimension.
+CHILD_DEEP = sub(A, A2, PARENT, max_depth=99)
+add("subdelegation_leaf_max_depth_cannot_widen", kind="chain", receipt=chain_receipt(CHILD_DEEP),
+    grants=[PARENT, CHILD_DEEP], expect=["VIOLATED", "attenuation_breach"])
+
+# --- ancestor revocation ---------------------------------------------------
+PARENT_R = base_grant(revocation={"revocable_by": ["grantor"],
+                                  "revocation_lookup_uri": "https://issuer.example/dat/revocations",
+                                  "max_revocation_age_seconds": 86400})
+CHILD_R = sub(A, A2, PARENT_R)  # the child itself declares no revocation source
+add("subdelegation_ancestor_revoked", kind="chain", receipt=chain_receipt(CHILD_R),
+    grants=[PARENT_R, CHILD_R],
+    revocation={"entries": [{"grant_id": PARENT_R["grant_id"], "revoked_at": "2026-04-09T00:00:00Z"}],
+                "fetched_at": fresh, "max_age": 86400},
+    expect=["VIOLATED", "ancestor_revoked"])
+add("subdelegation_ancestor_revocation_no_checker_indeterminate", kind="chain",
+    receipt=chain_receipt(CHILD_R), grants=[PARENT_R, CHILD_R],
+    expect=["INDETERMINATE", "revocation_unknown"])
+add("subdelegation_ancestor_live", kind="chain", receipt=chain_receipt(CHILD_R),
+    grants=[PARENT_R, CHILD_R],
+    revocation={"entries": [], "fetched_at": fresh, "max_age": 86400},
+    expect=["SATISFIED", "ok"])
+# require_revocation_source reaches ancestors too: PARENT declares none.
+add("subdelegation_ancestor_no_revocation_source_refused", kind="chain",
+    receipt=chain_receipt(CHILD_OK), grants=[PARENT, CHILD_OK], require_revocation_source=True,
+    expect=["VIOLATED", "no_revocation_source"])
+
+# --- ancestor validity window at the action's time -----------------------
+PARENT_LATE = base_grant(not_before="2026-05-01T00:00:00Z")
+CHILD_LATE = sub(A, A2, PARENT_LATE, not_before="2026-05-01T00:00:00Z")
+add("subdelegation_ancestor_not_yet_valid", kind="chain", receipt=chain_receipt(CHILD_LATE),
+    grants=[PARENT_LATE, CHILD_LATE], expect=["VIOLATED", "ancestor_not_yet_valid"])
+PARENT_SHORT = base_grant(not_after="2026-04-05T00:00:00Z")
+CHILD_SHORT = sub(A, A2, PARENT_SHORT, not_after="2026-04-05T00:00:00Z")
+add("subdelegation_ancestor_expired", kind="chain", receipt=chain_receipt(CHILD_SHORT),
+    grants=[PARENT_SHORT, CHILD_SHORT], expect=["VIOLATED", "ancestor_expired"])
+
+# --- attenuation dimensions the 0.2 check missed (audit #19, #21, #22) ----
+CHILD_EARLY = sub(A, A2, PARENT, not_before="2026-03-01T00:00:00Z")  # starts before parent
+add("subdelegation_not_before_precedes_parent", kind="chain", receipt=chain_receipt(CHILD_EARLY),
+    grants=[PARENT, CHILD_EARLY], expect=["VIOLATED", "attenuation_breach"])
+PARENT_P = base_grant(predicate="action.amount.cents < 4000")
+CHILD_NOPRED = sub(A, A2, PARENT_P)  # drops the parent's predicate
+add("subdelegation_predicate_dropped", kind="chain", receipt=chain_receipt(CHILD_NOPRED),
+    grants=[PARENT_P, CHILD_NOPRED], expect=["VIOLATED", "attenuation_breach"])
+CHILD_PRED = sub(A, A2, PARENT_P, predicate="action.amount.cents < 4000")  # carried verbatim
+add("subdelegation_predicate_carried_indeterminate_without_evaluator", kind="chain",
+    receipt=chain_receipt(CHILD_PRED), grants=[PARENT_P, CHILD_PRED],
+    expect=["INDETERMINATE", "predicate_unsupported"])
+CHILD_EUR = sub(A, A2, PARENT, stateless={
+    "amount_currency": "EUR", "amount_cents_per_action_max": 3000,
+    "counterparty_allowlist": ["domain:amctheatres.com"]})
+add("subdelegation_currency_changed", kind="chain", receipt=chain_receipt(CHILD_EUR),
+    grants=[PARENT, CHILD_EUR], expect=["VIOLATED", "attenuation_breach"])
+
+# --- the root grantor is what trusted_grantors binds, not the leaf's -----
+add("subdelegation_untrusted_root_grantor", kind="chain", receipt=chain_receipt(CHILD_OK),
+    grants=[PARENT, CHILD_OK], trusted_grantors=[A3.did], expect=["VIOLATED", "untrusted_grantor"])
+add("subdelegation_trusted_root_grantor", kind="chain", receipt=chain_receipt(CHILD_OK),
+    grants=[PARENT, CHILD_OK], trusted_grantors=[P.did], expect=["SATISFIED", "ok"])
+
+# --- a parent_grant_id cycle has no root: it must terminate, as a verdict -
+# Two agents cross-sign each other's grants with explicit ids so each can name
+# the other as parent. Continuity and attenuation both hold at every link.
+X_ID, Y_ID = "dat:cycle:x", "dat:cycle:y"
+CYC_X = sub(A, A2, {"grant_id": Y_ID}, grant_id=X_ID)
+CYC_Y = sub(A2, A, {"grant_id": X_ID}, grant_id=Y_ID)
+add("subdelegation_chain_cycle", kind="chain", receipt=chain_receipt(CYC_X),
+    grants=[CYC_X, CYC_Y], expect=["VIOLATED", "chain_cycle"])
 
 
 def main():

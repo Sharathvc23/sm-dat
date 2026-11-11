@@ -1,0 +1,94 @@
+{
+  "expect": [
+    "SATISFIED",
+    "ok"
+  ],
+  "grants": [
+    {
+      "authorization_ceremony": null,
+      "delegation": {
+        "max_depth": 1,
+        "parent_grant_id": null
+      },
+      "grant_id": "dat:did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX:a98b8e730deb2f7c",
+      "grantee_did": "did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH",
+      "grantor_did": "did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX",
+      "human_summary": "Buy movie tickets, <=$50 each, AMC only, MA/NY.",
+      "issued_at": "2026-04-01T00:00:00Z",
+      "not_after": "2026-06-30T23:59:59Z",
+      "not_before": "2026-04-01T00:00:00Z",
+      "revocation": null,
+      "scope": {
+        "action_categories": [
+          "purchase"
+        ],
+        "predicate": null,
+        "stateful": {},
+        "stateless": {
+          "amount_cents_per_action_max": 5000,
+          "amount_currency": "USD",
+          "counterparty_allowlist": [
+            "domain:amctheatres.com"
+          ],
+          "jurisdictions": [
+            "US-MA",
+            "US-NY"
+          ]
+        }
+      },
+      "signature": "NXMsY/+LUOy7WbwEdYUn/2bMB2hYVAn5V7wZmWOeqigeKEQ9+QyIOpve0R6cr9Fx5nj2IBMF0Iw02X4RWCgiBw==",
+      "version": "dat/0.1"
+    },
+    {
+      "authorization_ceremony": null,
+      "delegation": {
+        "max_depth": 1,
+        "parent_grant_id": "dat:did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX:a98b8e730deb2f7c"
+      },
+      "grant_id": "dat:did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH:98700e434967cddf",
+      "grantee_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2",
+      "grantor_did": "did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH",
+      "human_summary": "Sub: <=$30, AMC only.",
+      "issued_at": "2026-04-01T00:00:00Z",
+      "not_after": "2026-06-30T23:59:59Z",
+      "not_before": "2026-04-01T00:00:00Z",
+      "revocation": null,
+      "scope": {
+        "action_categories": [
+          "purchase"
+        ],
+        "predicate": null,
+        "stateful": {},
+        "stateless": {
+          "amount_cents_per_action_max": 3000,
+          "amount_currency": "USD",
+          "counterparty_allowlist": [
+            "domain:amctheatres.com"
+          ]
+        }
+      },
+      "signature": "pSRfOdd8CZENeiyTeE+XOY2tJ9kg7rF8lIvbMPE4zyLEpcD72byB1+opP8VPg3LvZ81SxjgMF+2OYpfX5USXCg==",
+      "version": "dat/0.1"
+    }
+  ],
+  "kind": "chain",
+  "name": "subdelegation_depth_within_root_bound",
+  "receipt": {
+    "action": {
+      "amount": {
+        "cents": 2500,
+        "currency": "USD"
+      },
+      "category": "purchase",
+      "counterparty_label": "domain:amctheatres.com",
+      "human_summary": "2 tickets",
+      "jurisdiction": "US-MA",
+      "outcome": "completed"
+    },
+    "authority_chain": [
+      "dat:did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH:98700e434967cddf"
+    ],
+    "issued_at": "2026-04-10T19:00:00Z",
+    "issuer_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2"
+  }
+}

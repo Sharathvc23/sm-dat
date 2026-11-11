@@ -9,11 +9,25 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from sm_arp import Identity, canonical_bytes, now_iso, pubkey_from_did
 
 DAT_VERSION = "dat/0.1"
+
+
+def _parse_rfc3339(ts: Any) -> datetime | None:
+    """Aware UTC datetime, or None when ``ts`` is not an RFC 3339 string with
+    an offset. Mirrors ``sm_dat.verify.parse_rfc3339`` (which cannot be
+    imported here without a cycle); the verifier is the normative copy."""
+    if not isinstance(ts, str) or not ts:
+        return None
+    try:
+        d = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return None if d.tzinfo is None else d.astimezone(timezone.utc)
 
 
 def build_grant(
@@ -44,7 +58,12 @@ def build_grant(
         raise ValueError("action_categories must be non-empty")
     if len(human_summary) > 280:
         raise ValueError("human_summary exceeds 280 code points")
+    if isinstance(max_depth, bool) or not isinstance(max_depth, int) or max_depth < 0:
+        raise ValueError("max_depth must be a non-negative integer")
     nb = not_before or issued_at or now_iso()
+    for name, ts in (("not_before", nb), ("not_after", not_after), ("issued_at", issued_at or nb)):
+        if _parse_rfc3339(ts) is None:
+            raise ValueError(f"{name} must be an RFC 3339 timestamp with a UTC offset: {ts!r}")
     grant: dict[str, Any] = {
         "version": DAT_VERSION,
         "grant_id": grant_id,
