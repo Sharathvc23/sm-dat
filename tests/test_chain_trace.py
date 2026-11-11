@@ -120,7 +120,11 @@ def test_malformed_grant_after_a_violation_does_not_raise():
     a violation in one entry doesn't hide the next entry's node) means a
     grant the pre-refactor function's short-circuit would never have reached
     can now be reached — including a sufficiently malformed one. This must
-    degrade to a VIOLATED node, never raise."""
+    degrade to a VIOLATED node, never raise. Since 0.3.0 the walk validates
+    each grant's structure up front, so a non-object ``delegation`` is the
+    spec'd ``VIOLATED(malformed)`` with the defect named in ``detail`` — the
+    ``malformed_grant`` catch-all remains only for defects the structural
+    check cannot name."""
     v = _load("30-multigrant_one_violated")
     grants = {g["grant_id"]: g for g in v["grants"]}
     cap_5000_id, cap_4000_id = v["receipt"]["authority_chain"]
@@ -134,7 +138,8 @@ def test_malformed_grant_after_a_violation_does_not_raise():
     assert len(trace.chains) == 2
     assert trace.chains[1][0].grant_id == cap_5000_id
     assert trace.chains[1][0].verdict.status == "VIOLATED"
-    assert trace.chains[1][0].verdict.reason == "malformed_grant"
+    assert trace.chains[1][0].verdict.reason == "malformed"
+    assert "delegation" in trace.chains[1][0].verdict.detail
     # Aggregate still matches what the pre-refactor short-circuiting
     # function would have returned: it never would have reached the
     # malformed second entry, having already returned at the first.
