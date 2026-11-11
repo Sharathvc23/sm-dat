@@ -102,3 +102,20 @@ def test_direct_grant_checks_dat_owner_with_real_signatures():
         result = verify_direct_grant(action, grant, at=at, require_dat=True,
                                      dats={dat["grant_id"]: dat}, dat_verifier=make_dat_verifier())
         assert result.ok == (signer.did == P.did)
+
+
+def test_bridge_passes_policy_switches_through():
+    # The bridge already binds grantor to principal_did (grantor_mismatch);
+    # trusted_grantors narrows further and require_revocation_source refuses a
+    # DAT that declares no revocation source — both preserved as reasons.
+    dat = movie_dat()
+    g = grant_receipt(dat)
+    r = action_receipt(g["receipt_id"], cents=3000)
+    ok = make_dat_verifier(trusted_grantors={P.did})
+    assert verify_authority_chain(r, {g["receipt_id"]: g}, dats={dat["grant_id"]: dat}, dat_verifier=ok).ok
+    narrowed = make_dat_verifier(trusted_grantors={A.did})
+    res = verify_authority_chain(r, {g["receipt_id"]: g}, dats={dat["grant_id"]: dat}, dat_verifier=narrowed)
+    assert not res.ok and res.detail == "violated:untrusted_grantor"
+    strict = make_dat_verifier(require_revocation_source=True)
+    res = verify_authority_chain(r, {g["receipt_id"]: g}, dats={dat["grant_id"]: dat}, dat_verifier=strict)
+    assert not res.ok and res.detail == "violated:no_revocation_source"

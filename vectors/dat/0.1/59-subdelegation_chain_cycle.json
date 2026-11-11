@@ -1,0 +1,90 @@
+{
+  "expect": [
+    "VIOLATED",
+    "chain_cycle"
+  ],
+  "grants": [
+    {
+      "authorization_ceremony": null,
+      "delegation": {
+        "max_depth": 4,
+        "parent_grant_id": "dat:cycle:y"
+      },
+      "grant_id": "dat:cycle:x",
+      "grantee_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2",
+      "grantor_did": "did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH",
+      "human_summary": "Sub: <=$30, AMC only.",
+      "issued_at": "2026-04-01T00:00:00Z",
+      "not_after": "2026-06-30T23:59:59Z",
+      "not_before": "2026-04-01T00:00:00Z",
+      "revocation": null,
+      "scope": {
+        "action_categories": [
+          "purchase"
+        ],
+        "predicate": null,
+        "stateful": {},
+        "stateless": {
+          "amount_cents_per_action_max": 3000,
+          "amount_currency": "USD",
+          "counterparty_allowlist": [
+            "domain:amctheatres.com"
+          ]
+        }
+      },
+      "signature": "ET6koKfe4fXefaVMa+D+bvq2nOQi0WGHbsPSZs7yv6+OEiWgXQf22JDrQA/WhYPl8wAS7hT2KlK9tElPUUkiCw==",
+      "version": "dat/0.1"
+    },
+    {
+      "authorization_ceremony": null,
+      "delegation": {
+        "max_depth": 4,
+        "parent_grant_id": "dat:cycle:x"
+      },
+      "grant_id": "dat:cycle:y",
+      "grantee_did": "did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH",
+      "grantor_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2",
+      "human_summary": "Sub: <=$30, AMC only.",
+      "issued_at": "2026-04-01T00:00:00Z",
+      "not_after": "2026-06-30T23:59:59Z",
+      "not_before": "2026-04-01T00:00:00Z",
+      "revocation": null,
+      "scope": {
+        "action_categories": [
+          "purchase"
+        ],
+        "predicate": null,
+        "stateful": {},
+        "stateless": {
+          "amount_cents_per_action_max": 3000,
+          "amount_currency": "USD",
+          "counterparty_allowlist": [
+            "domain:amctheatres.com"
+          ]
+        }
+      },
+      "signature": "091XFo2Mxspp96um5TGbuCxE50XZEik3BGY3IE3wIHRDURpY0haETF0+oUzHfHJcm8cSXw4XhOWjCSakD6R1AQ==",
+      "version": "dat/0.1"
+    }
+  ],
+  "kind": "chain",
+  "name": "subdelegation_chain_cycle",
+  "receipt": {
+    "action": {
+      "amount": {
+        "cents": 2500,
+        "currency": "USD"
+      },
+      "category": "purchase",
+      "counterparty_label": "domain:amctheatres.com",
+      "human_summary": "2 tickets",
+      "jurisdiction": "US-MA",
+      "outcome": "completed"
+    },
+    "authority_chain": [
+      "dat:cycle:x"
+    ],
+    "issued_at": "2026-04-10T19:00:00Z",
+    "issuer_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2"
+  }
+}

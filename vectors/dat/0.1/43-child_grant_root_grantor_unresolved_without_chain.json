@@ -1,0 +1,55 @@
+{
+  "action": {
+    "amount": {
+      "cents": 2500,
+      "currency": "USD"
+    },
+    "category": "purchase",
+    "counterparty_label": "domain:amctheatres.com",
+    "human_summary": "2 tickets",
+    "jurisdiction": "US-MA",
+    "outcome": "completed"
+  },
+  "agent_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2",
+  "expect": [
+    "INDETERMINATE",
+    "root_grantor_unresolved"
+  ],
+  "grant": {
+    "authorization_ceremony": null,
+    "delegation": {
+      "max_depth": 4,
+      "parent_grant_id": "dat:did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX:9faf857ed6ff8e8c"
+    },
+    "grant_id": "dat:did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH:d03114bb9707b788",
+    "grantee_did": "did:key:z6MkvRXNYcE7MMduynWTgeKbDaT1iijDSC8pZqXZc8rHPrf2",
+    "grantor_did": "did:key:z6Mko9hTggMwjSTEaJaPUfE6tqcy2xvU6BnNq3e3o8qVBiyH",
+    "human_summary": "Sub: <=$30, AMC only.",
+    "issued_at": "2026-04-01T00:00:00Z",
+    "not_after": "2026-06-30T23:59:59Z",
+    "not_before": "2026-04-01T00:00:00Z",
+    "revocation": null,
+    "scope": {
+      "action_categories": [
+        "purchase"
+      ],
+      "predicate": null,
+      "stateful": {},
+      "stateless": {
+        "amount_cents_per_action_max": 3000,
+        "amount_currency": "USD",
+        "counterparty_allowlist": [
+          "domain:amctheatres.com"
+        ]
+      }
+    },
+    "signature": "EZUbUgmgCx2BGOGsujQM+YjFR/UMy9lFFjyV6y3iuW4TFYxVC3q3g3Z2wH4r9xgtkFk6sTJyUBIYDbBH0P7SDQ==",
+    "version": "dat/0.1"
+  },
+  "issued_at": "2026-04-10T19:00:00Z",
+  "kind": "grant",
+  "name": "child_grant_root_grantor_unresolved_without_chain",
+  "trusted_grantors": [
+    "did:key:z6Mkon3Necd6NkkyfoGoHxid2znGc59LU3K7mubaRcFbLfLX"
+  ]
+}
